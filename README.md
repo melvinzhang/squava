@@ -54,3 +54,23 @@ go build squava.go
 - `-p1, -p2, -p3`: Player type (`human` or `mcts`).
 - `-iterations`: Number of visits the root node must reach per turn.
 - `-cpuprofile`: File path to write a CPU profile for performance analysis.
+
+## Performance Benchmarks
+
+Based on an analysis of 100 games (100,000 iterations per turn):
+
+### Win Statistics
+- **Player 2 (O):** 46.0% wins
+- **Player 3 (Z):** 29.0% wins
+- **Player 1 (X):** 23.0% wins
+- **Draw:** 2.0%
+
+### Game Dynamics
+- **Average Game Length:** 31.5 moves
+- **Primary Win Method:** Last Standing (85%)
+- **Secondary Win Method:** 4-in-a-row (13%)
+- **Eliminations:** Player 1 is eliminated most frequently (72 times), followed by Player 3 (65) and Player 2 (48).
+
+### AI Behavior
+- **Average Confidence:** Player 2 maintains the highest average estimated winrate at 38.4%.
+- **Blunder Detection:** The engine detects significant winrate shifts (blunders > 15%), often correlating with immediate elimination after failing to block an opponent or creating a 3-in-a-row.
