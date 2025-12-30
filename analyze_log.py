@@ -28,10 +28,6 @@ def analyze_squava_log(filepath):
     eliminations = {1: 0, 2: 0, 3: 0}
     game_lengths = []
     
-    # Performance Stats
-    dag_sizes = []
-    reuse_ratios = []
-    
     # Confidence (Estimated Winrate) per player
     est_winrates = defaultdict(list) 
     
@@ -60,13 +56,7 @@ def analyze_squava_log(filepath):
             if turn_match:
                 current_player = int(turn_match.group(1))
                 
-            # 2. Detect MCGS Stats
-            stats_match = re.search(r"Total Nodes in DAG: (\d+). Reuse Ratio: ([\d\.]+)", line)
-            if stats_match:
-                dag_sizes.append(int(stats_match.group(1)))
-                reuse_ratios.append(float(stats_match.group(2)))
-                
-            # 3. Detect Estimated Winrate
+            # 2. Detect Estimated Winrate
             wr_match = re.search(r"Estimated Winrate: ([\d\.]+)%", line)
             if wr_match and current_player:
                 wr = float(wr_match.group(1))
@@ -92,7 +82,7 @@ def analyze_squava_log(filepath):
                 
                 player_last_wr[current_player] = wr
 
-            # 4. Detect Move Choice
+            # 3. Detect Move Choice
             # "Player 1 chooses A1"
             move_match = re.search(r"Player (\d) chooses ([A-H][1-8])", line)
             if move_match:
@@ -101,7 +91,7 @@ def analyze_squava_log(filepath):
                 move_history.append(f"P{p_id}:{mv}")
                 moves_in_game += 1
                 
-            # 5. Detect Elimination (Loss)
+            # 4. Detect Elimination (Loss)
             elim_match = re.search(r"Oops! Player (\d) made 3 in a row", line)
             if elim_match:
                 eliminated_player = int(elim_match.group(1))
@@ -110,10 +100,8 @@ def analyze_squava_log(filepath):
                 # Record elimination as drop to 0
                 if eliminated_player in player_last_wr:
                     old_wr = player_last_wr[eliminated_player]
-                    # Only record if it wasn't already low? No, elimination is always bad.
-                    # Or if drop is significant.
                     diff = 0.0 - old_wr
-                    if diff < -DROP_THRESHOLD:
+                    if abs(diff) > DROP_THRESHOLD:
                         context = move_history[-3:]
                         blunders.append({
                             'game': game_idx + 1,
@@ -126,19 +114,19 @@ def analyze_squava_log(filepath):
                             'context': context
                         })
                 
-            # 6. Detect Win (4-in-a-row)
+            # 5. Detect Win (4-in-a-row)
             win4_match = re.search(r"!!! Player (\d) wins with 4 in a row", line)
             if win4_match:
                 game_winner = int(win4_match.group(1))
                 game_win_type = "4-in-a-row"
                 
-            # 7. Detect Win (Last Standing)
+            # 6. Detect Win (Last Standing)
             win_last_match = re.search(r"Player (\d) wins as the last player standing", line)
             if win_last_match:
                 game_winner = int(win_last_match.group(1))
                 game_win_type = "Last Standing"
                 
-            # 8. Detect Draw
+            # 7. Detect Draw
             if "Game is a Draw" in line:
                 game_winner = "Draw"
                 game_win_type = "Draw"
@@ -154,7 +142,6 @@ def analyze_squava_log(filepath):
     print(f"ANALYSIS REPORT: {len(winners)} Games Completed")
     print("="*40)
     
-    # ... (Win stats etc) ...
     # 1. Win Statistics
     print("\n🏆 Win Statistics:")
     win_counts = Counter(winners)
@@ -179,21 +166,14 @@ def analyze_squava_log(filepath):
         print(f"  Player {p}: {eliminations[p]} times")
         
     # 4. Game Lengths
-    print("\n⏱️  Game Lengths (Moves):")
+    print("\n⏱️ Game Lengths (Moves):")
     if game_lengths:
         print(f"  Average: {statistics.mean(game_lengths):.1f}")
         print(f"  Median:  {statistics.median(game_lengths):.1f}")
         print(f"  Min:     {min(game_lengths)}")
         print(f"  Max:     {max(game_lengths)}")
         
-    # 5. MCGS Efficiency
-    print("\n🧠 MCGS Efficiency:")
-    if dag_sizes:
-        print(f"  Avg DAG Size:    {statistics.mean(dag_sizes):.0f} nodes")
-        print(f"  Avg Reuse Ratio: {statistics.mean(reuse_ratios):.2f}")
-        print(f"  Max Reuse Ratio: {max(reuse_ratios):.2f}")
-        
-    # 6. Blunders
+    # 5. Blunders
     print(f"\n📉 Significant Winrate Shifts (Possible Blunders > {DROP_THRESHOLD}%):")
     if not blunders:
         print("  None detected.")
@@ -202,7 +182,7 @@ def analyze_squava_log(filepath):
             print(f"  Game {b['game']} Move {b['move_idx']} (P{b['player']}): {b['old']:.1f}% -> {b['new']:.1f}% ({b['diff']:.1f}%) [{b['reason']}]")
             print(f"    Context: {', '.join(b['context'])}")
 
-    # 7. Confidence
+    # 6. Confidence
     print("\n🤖 AI Confidence (Average Estimated Winrate):")
     for p in [1, 2, 3]:
         if est_winrates[p]:
@@ -211,7 +191,7 @@ def analyze_squava_log(filepath):
 
 if __name__ == "__main__":
     import sys
-    filename = "log_100k"
+    filename = "log_900k"
     if len(sys.argv) > 1:
         filename = sys.argv[1]
     analyze_squava_log(filename)
