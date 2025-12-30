@@ -34,6 +34,11 @@ def analyze_squava_log(filepath):
     
     # Confidence (Estimated Winrate) per player
     est_winrates = defaultdict(list) 
+    
+    # Blunder Tracking
+    # List of dicts: {game_id, move_num, player, old_wr, new_wr, diff, context}
+    blunders = []
+    DROP_THRESHOLD = 15.0
 
     for game_idx, game_data in enumerate(games):
         moves_in_game = 0
@@ -41,51 +46,93 @@ def analyze_squava_log(filepath):
         game_winner = None
         game_win_type = None
         
+        # Per-game tracking
+        player_last_wr = {} # {player_id: winrate_float}
+        move_history = []   # list of "P1: A1" strings
+        
         lines = game_data.strip().split('\n')
         
         for line in lines:
             line = line.strip()
             
             # 1. Detect Turn
-            # "Turn: Player 1 (X)"
             turn_match = re.search(r"Turn: Player (\d)", line)
             if turn_match:
                 current_player = int(turn_match.group(1))
                 
             # 2. Detect MCGS Stats
-            # "MCGS Stats: 100000 iterations. Total Nodes in DAG: 100001. Reuse Ratio: 1.00"
             stats_match = re.search(r"Total Nodes in DAG: (\d+). Reuse Ratio: ([\d\.]+)", line)
             if stats_match:
                 dag_sizes.append(int(stats_match.group(1)))
                 reuse_ratios.append(float(stats_match.group(2)))
                 
             # 3. Detect Estimated Winrate
-            # "Estimated Winrate: 30.68%"
             wr_match = re.search(r"Estimated Winrate: ([\d\.]+)%", line)
             if wr_match and current_player:
-                est_winrates[current_player].append(float(wr_match.group(1)))
+                wr = float(wr_match.group(1))
+                est_winrates[current_player].append(wr)
+                
+                # Check for drop
+                if current_player in player_last_wr:
+                    old_wr = player_last_wr[current_player]
+                    diff = wr - old_wr
+                    if diff < -DROP_THRESHOLD:
+                        # Found a big drop
+                        context = move_history[-3:] if len(move_history) >= 3 else move_history
+                        blunders.append({
+                            'game': game_idx + 1,
+                            'move_idx': moves_in_game,
+                            'player': current_player,
+                            'old': old_wr,
+                            'new': wr,
+                            'diff': diff,
+                            'reason': "Shift",
+                            'context': context
+                        })
+                
+                player_last_wr[current_player] = wr
 
             # 4. Detect Move Choice
             # "Player 1 chooses A1"
-            if "chooses" in line:
+            move_match = re.search(r"Player (\d) chooses ([A-H][1-8])", line)
+            if move_match:
+                p_id = int(move_match.group(1))
+                mv = move_match.group(2)
+                move_history.append(f"P{p_id}:{mv}")
                 moves_in_game += 1
                 
             # 5. Detect Elimination (Loss)
-            # "Oops! Player 1 made 3 in a row and is eliminated!"
             elim_match = re.search(r"Oops! Player (\d) made 3 in a row", line)
             if elim_match:
                 eliminated_player = int(elim_match.group(1))
                 eliminations[eliminated_player] += 1
                 
+                # Record elimination as drop to 0
+                if eliminated_player in player_last_wr:
+                    old_wr = player_last_wr[eliminated_player]
+                    # Only record if it wasn't already low? No, elimination is always bad.
+                    # Or if drop is significant.
+                    diff = 0.0 - old_wr
+                    if diff < -DROP_THRESHOLD:
+                        context = move_history[-3:]
+                        blunders.append({
+                            'game': game_idx + 1,
+                            'move_idx': moves_in_game,
+                            'player': eliminated_player,
+                            'old': old_wr,
+                            'new': 0.0,
+                            'diff': diff,
+                            'reason': "Elimination",
+                            'context': context
+                        })
+                
             # 6. Detect Win (4-in-a-row)
-            # "!!! Player 1 wins with 4 in a row! !!!"
             win4_match = re.search(r"!!! Player (\d) wins with 4 in a row", line)
             if win4_match:
                 game_winner = int(win4_match.group(1))
                 game_win_type = "4-in-a-row"
                 
             # 7. Detect Win (Last Standing)
-            # "Player 2 wins as the last player standing!"
             win_last_match = re.search(r"Player (\d) wins as the last player standing", line)
             if win_last_match:
                 game_winner = int(win_last_match.group(1))
@@ -107,6 +154,7 @@ def analyze_squava_log(filepath):
     print(f"ANALYSIS REPORT: {len(winners)} Games Completed")
     print("="*40)
     
+    # ... (Win stats etc) ...
     # 1. Win Statistics
     print("\n🏆 Win Statistics:")
     win_counts = Counter(winners)
@@ -127,7 +175,6 @@ def analyze_squava_log(filepath):
         
     # 3. Eliminations
     print("\n💀 Eliminations (Self-Loss via 3-in-a-row):")
-    print("   (Note: One game can have multiple eliminations)")
     for p in [1, 2, 3]:
         print(f"  Player {p}: {eliminations[p]} times")
         
@@ -146,7 +193,16 @@ def analyze_squava_log(filepath):
         print(f"  Avg Reuse Ratio: {statistics.mean(reuse_ratios):.2f}")
         print(f"  Max Reuse Ratio: {max(reuse_ratios):.2f}")
         
-    # 6. Confidence
+    # 6. Blunders
+    print("\n📉 Significant Winrate Shifts (Possible Blunders > 15%):")
+    if not blunders:
+        print("  None detected.")
+    else:
+        for b in blunders:
+            print(f"  Game {b['game']} Move {b['move_idx']} (P{b['player']}): {b['old']:.1f}% -> {b['new']:.1f}% ({b['diff']:.1f}%) [{b['reason']}]")
+            print(f"    Context: {', '.join(b['context'])}")
+
+    # 7. Confidence
     print("\n🤖 AI Confidence (Average Estimated Winrate):")
     for p in [1, 2, 3]:
         if est_winrates[p]:
