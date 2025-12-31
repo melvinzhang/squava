@@ -29,8 +29,8 @@ func randIntn(n int) int {
 	if n <= 0 {
 		return 0
 	}
-	// This is biased, but fast. For MCTS rollouts, it's an acceptable trade-off.
-	return int(xrand() % uint64(n))
+	// Lemire's fast alternative to modulo for bounded random numbers
+	return int((uint64(uint32(xrand())) * uint64(n)) >> 32)
 }
 
 var (
@@ -763,7 +763,17 @@ func RunSimulation(board Board, activeMask uint8, currentID int) [3]float64 {
 			selectedIdx = bits.TrailingZeros64(temp)
 		}
 
-		simBoard.Set(selectedIdx, curr)
+		// Inline and specialize simBoard.Set
+		mask := Bitboard(uint64(1) << selectedIdx)
+		simBoard.Occupied |= mask
+		switch curr {
+		case 0:
+			simBoard.P1 |= mask
+		case 1:
+			simBoard.P2 |= mask
+		case 2:
+			simBoard.P3 |= mask
+		}
 
 		if mustCheckLoss {
 			_, isLoss := CheckBoard(simBoard.GetPlayerBoard(curr))
