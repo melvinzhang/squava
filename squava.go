@@ -109,48 +109,29 @@ func (b *Board) GetPlayerBoard(pID int) Bitboard {
 	return 0
 }
 func CheckWin(bb Bitboard) bool {
-	// Horizontal
-	h := bb & (bb >> 1) & Bitboard(^FileH)
-	if (h & (h >> 2) & Bitboard(^(FileH | (FileH >> 1)))) != 0 {
-		return true
-	}
-	// Vertical
-	v := bb & (bb >> 8)
-	if (v & (v >> 16)) != 0 {
-		return true
-	}
-	// Diagonal (A1 -> H8, +9)
-	d1 := bb & (bb >> 9) & Bitboard(^FileH)
-	if (d1 & (d1 >> 18) & Bitboard(^(FileH | (FileH >> 9)))) != 0 {
-		return true
-	}
-	// Anti-Diagonal (H1 -> A8, +7)
-	d2 := bb & (bb >> 7) & Bitboard(^FileA)
-	if (d2 & (d2 >> 14) & Bitboard(^(FileA | (FileA >> 7)))) != 0 {
-		return true
+	b := uint64(bb)
+	for d := 0; d < 4; d++ {
+		s := shifts[d]
+		ml := masksL[d]
+		l1 := (b << s) & ml
+		l2 := (l1 << s) & ml
+		l3 := (l2 << s) & ml
+		if (b & l1 & l2 & l3) != 0 {
+			return true
+		}
 	}
 	return false
 }
 func CheckLose(bb Bitboard) bool {
-	// Horizontal
-	h := bb & (bb >> 1) & Bitboard(^FileH)
-	if (h & (h >> 1) & Bitboard(^FileH)) != 0 {
-		return true
-	}
-	// Vertical
-	v := bb & (bb >> 8)
-	if (v & (v >> 8)) != 0 {
-		return true
-	}
-	// Diagonal (+9)
-	d1 := bb & (bb >> 9) & Bitboard(^FileH)
-	if (d1 & (d1 >> 9) & Bitboard(^FileH)) != 0 {
-		return true
-	}
-	// Anti-Diagonal (+7)
-	d2 := bb & (bb >> 7) & Bitboard(^FileA)
-	if (d2 & (d2 >> 7) & Bitboard(^FileA)) != 0 {
-		return true
+	b := uint64(bb)
+	for d := 0; d < 4; d++ {
+		s := shifts[d]
+		ml := masksL[d]
+		l1 := (b << s) & ml
+		l2 := (l1 << s) & ml
+		if (b & l1 & l2) != 0 {
+			return true
+		}
 	}
 	return false
 }
@@ -200,14 +181,13 @@ func GetBestMoves(board Board, currentPID, nextPID int) Bitboard {
 	empty := ^board.Occupied
 	_, myLoses := GetWinsAndLoses(board.GetPlayerBoard(currentPID), empty)
 
-	targets := empty & ^myLoses
-	if targets == 0 {
-		targets = empty & myLoses
+	safeMoves := empty & ^myLoses
+	if safeMoves != 0 {
+		return safeMoves
 	}
-	if targets == 0 {
-		targets = empty
-	}
-	return targets
+
+	// If no safe moves, must make a losing move. Any empty square is fine.
+	return empty
 }
 
 // --- Human Player ---
@@ -352,7 +332,7 @@ func ZobristHash(board Board, playerToMoveID int, activeMask uint8) uint64 {
 	return h
 }
 
-func (m *MCTSPlayer) GetMoveWithContext(board Board, forcedMoves Bitboard, players []int, turnIdx int) Move {
+func (m *MCTSPlayer) GetMoveWithContext(board Board, players []int, turnIdx int) Move {
 	if m.tt == nil {
 		m.tt = make([]TTEntry, TTSize)
 	}
@@ -475,13 +455,10 @@ func (m *MCTSPlayer) GetMoveWithContext(board Board, forcedMoves Bitboard, playe
 	}
 	if bestVisits == -1 {
 		// Fallback
-		if forcedMoves != 0 {
-			idx := bits.TrailingZeros64(uint64(forcedMoves))
-			return MoveFromIndex(idx)
-		}
-		empty := ^board.Occupied
-		if empty != 0 {
-			idx := bits.TrailingZeros64(uint64(empty))
+		nextID := getNextPlayer(players[turnIdx], activeMask)
+		moves := GetBestMoves(board, players[turnIdx], nextID)
+		if moves != 0 {
+			idx := bits.TrailingZeros64(uint64(moves))
 			return MoveFromIndex(idx)
 		}
 	}
@@ -734,7 +711,6 @@ func (g *SquavaGame) Run() {
 		nextPlayer := g.players[nextPlayerIdx]
 
 		fmt.Printf("Turn: %s (%s)\n", currentPlayer.Name(), currentPlayer.Symbol())
-		forcedMoves := GetForcedMoves(g.board, currentPlayer.ID(), nextPlayer.ID())
 		var move Move
 		if mcts, ok := currentPlayer.(*MCTSPlayer); ok {
 			fmt.Printf("%s is thinking...\n", currentPlayer.Name())
@@ -742,10 +718,11 @@ func (g *SquavaGame) Run() {
 			for _, p := range g.players {
 				activeIDs = append(activeIDs, p.ID())
 			}
-			move = mcts.GetMoveWithContext(g.board, forcedMoves, activeIDs, g.turnIdx)
+			move = mcts.GetMoveWithContext(g.board, activeIDs, g.turnIdx)
 			fmt.Printf("%s chooses %c%d\n", currentPlayer.Name(), move.c+65, move.r+1)
 		} else {
 			g.PrintBoard()
+			forcedMoves := GetForcedMoves(g.board, currentPlayer.ID(), nextPlayer.ID())
 			move = currentPlayer.GetMove(g.board, forcedMoves)
 		}
 		g.board.Set(move.ToIndex(), currentPlayer.ID())
