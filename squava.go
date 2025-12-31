@@ -356,6 +356,7 @@ func init() {
 	for i := 1; i < len(coeffTable); i++ {
 		coeffTable[i] = 2.0 * math.Sqrt(math.Log(float64(i)))
 	}
+	tt = make([]TTEntry, TTSize)
 }
 
 func getNextPlayer(currentID int, activeMask uint8) int {
@@ -363,7 +364,7 @@ func getNextPlayer(currentID int, activeMask uint8) int {
 }
 
 // --- MCTS Player ---
-const TTSize = 1 << 20 // 1M entries
+const TTSize = 1 << 24 // ~16M entries
 const TTMask = TTSize - 1
 
 type TTEntry struct {
@@ -371,18 +372,19 @@ type TTEntry struct {
 	ptr  weak.Pointer[MCGSNode]
 }
 
+var tt []TTEntry
+
 type MCTSPlayer struct {
 	info       PlayerInfo
 	iterations int
-	tt         []TTEntry
 	path       []PathStep
+	root       *MCGSNode
 }
 
 func NewMCTSPlayer(name, symbol string, id int, iterations int) *MCTSPlayer {
 	return &MCTSPlayer{
 		info:       PlayerInfo{name: name, symbol: symbol, id: id},
 		iterations: iterations,
-		tt:         make([]TTEntry, TTSize),
 		path:       make([]PathStep, 0, 64),
 	}
 }
@@ -420,10 +422,6 @@ func ZobristHash(board Board, playerToMoveID int, activeMask uint8) uint64 {
 }
 
 func (m *MCTSPlayer) GetMoveWithContext(board Board, players []int, turnIdx int) Move {
-	if m.tt == nil {
-		m.tt = make([]TTEntry, TTSize)
-	}
-
 	activeMask := uint8(0)
 	for _, pID := range players {
 		activeMask |= 1 << uint(pID)
@@ -431,7 +429,7 @@ func (m *MCTSPlayer) GetMoveWithContext(board Board, players []int, turnIdx int)
 	rootHash := ZobristHash(board, players[turnIdx], activeMask)
 	idx := int(rootHash & TTMask)
 	var root *MCGSNode
-	if entry := m.tt[idx]; entry.hash == rootHash {
+	if entry := tt[idx]; entry.hash == rootHash {
 		candidate := entry.ptr.Value()
 		if candidate != nil && candidate.Matches(board, players[turnIdx], activeMask) {
 			root = candidate
@@ -440,8 +438,9 @@ func (m *MCTSPlayer) GetMoveWithContext(board Board, players []int, turnIdx int)
 
 	if root == nil {
 		root = NewMCGSNode(board, players[turnIdx], activeMask)
-		m.tt[idx] = TTEntry{hash: rootHash, ptr: weak.Make(root)}
+		tt[idx] = TTEntry{hash: rootHash, ptr: weak.Make(root)}
 	}
+	m.root = root
 
 	startRollouts := root.N
 	startTime := time.Now()
@@ -467,7 +466,7 @@ func (m *MCTSPlayer) GetMoveWithContext(board Board, players []int, turnIdx int)
 			hash := ZobristHash(state.board, state.nextPlayerID, state.activeMask)
 			ttIdx := int(hash & TTMask)
 			var nextNode *MCGSNode
-			if entry := m.tt[ttIdx]; entry.hash == hash {
+			if entry := tt[ttIdx]; entry.hash == hash {
 				candidate := entry.ptr.Value()
 				if candidate != nil && candidate.Matches(state.board, state.nextPlayerID, state.activeMask) {
 					nextNode = candidate
@@ -479,7 +478,7 @@ func (m *MCTSPlayer) GetMoveWithContext(board Board, players []int, turnIdx int)
 			} else {
 				nextNode = NewMCGSNode(state.board, state.nextPlayerID, state.activeMask)
 				nextNode.winnerID = state.winnerID
-				m.tt[ttIdx] = TTEntry{hash: hash, ptr: weak.Make(nextNode)}
+				tt[ttIdx] = TTEntry{hash: hash, ptr: weak.Make(nextNode)}
 
 				// Rollout ONLY for new nodes
 				if nextNode.winnerID != -1 {
