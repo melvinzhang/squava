@@ -761,7 +761,20 @@ func RunSimulation(board Board, activeMask uint8, currentID int) ([3]float64, in
 		}
 
 		if moves == 0 {
-			return [3]float64{}, steps, simBoard
+			var res [3]float64
+			count := bits.OnesCount8(simMask)
+			score := 0.0
+			if count == 3 {
+				score = 1.0 / 3.0
+			} else if count == 2 {
+				score = 0.5
+			}
+			for p := 0; p < 3; p++ {
+				if (simMask & (1 << uint(p))) != 0 {
+					res[p] = score
+				}
+			}
+			return res, steps, simBoard
 		}
 
 		var selectedIdx int
