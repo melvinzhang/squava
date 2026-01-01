@@ -425,58 +425,56 @@ func (m *MCTSPlayer) GetMove(board Board, players []int, turnIdx int) Move {
 	for root.N < m.iterations {
 		path := m.Select(root)
 		leaf := path[len(path)-1].Node
-		// Expansion
-		var result [3]float64
-		if leaf.untriedMoves != 0 {
-			count := bits.OnesCount64(uint64(leaf.untriedMoves))
-			var idx int
-			if count == 1 {
-				idx = bits.TrailingZeros64(uint64(leaf.untriedMoves))
-			} else {
-				hi, _ := bits.Mul64(xrand(), uint64(count))
-				idx = SelectBit64(uint64(leaf.untriedMoves), int(hi))
-			}
-			move := MoveFromIndex(idx)
-			// Remove move from untried
-			leaf.untriedMoves &= Bitboard(^(uint64(1) << idx))
-			// Calc next state
-			state := SimulateStep(leaf.board, leaf.activeMask, leaf.playerToMoveID, move, leaf.hash)
-			hash := state.hash
-			ttIdx := int(hash & TTMask)
-			var nextNode *MCGSNode
-			if entry := tt[ttIdx]; entry.hash == hash && entry.node != nil {
-				if entry.node.Matches(state.board, state.nextPlayerID, state.activeMask, hash) {
-					nextNode = entry.node
-				}
-			}
 
-			if nextNode == nil {
-				nextNode = NewMCGSNode(state.board, state.nextPlayerID, state.activeMask, hash, state.winnerID)
-				tt[ttIdx] = TTEntry{hash: hash, node: nextNode}
-			}
-
-			// Always rollout for non-terminal nodes to avoid virtual visit bias
-			if nextNode.winnerID != -1 {
-				result[nextNode.winnerID] = 1.0
-			} else {
-				var s int
-				result, s, _ = RunSimulation(nextNode.board, nextNode.activeMask, nextNode.playerToMoveID)
-				totalSteps += s
-			}
-			// Add Edge
-			edgeIdx := len(leaf.Edges)
-			leaf.Edges = append(leaf.Edges, MCGSEdge{
-				Move:   move,
-				Dest:   nextNode,
-				Visits: 0,
-			})
-			// Add to path
-			path = append(path, PathStep{Node: nextNode, EdgeIdx: edgeIdx})
-		} else {
-			// Leaf is terminal or fully expanded
-			result = leaf.Q
+		if leaf.untriedMoves == 0 {
+			// Select stops at untriedMoves != 0 or terminal (len(Edges) == 0)
+			m.Backprop(path, leaf.Q)
+			continue
 		}
-		// Backprop
+
+		// Expansion
+		count := bits.OnesCount64(uint64(leaf.untriedMoves))
+		var idx int
+		if count == 1 {
+			idx = bits.TrailingZeros64(uint64(leaf.untriedMoves))
+		} else {
+			hi, _ := bits.Mul64(xrand(), uint64(count))
+			idx = SelectBit64(uint64(leaf.untriedMoves), int(hi))
+		}
+		move := MoveFromIndex(idx)
+		leaf.untriedMoves &= Bitboard(^(uint64(1) << idx))
+
+		state := SimulateStep(leaf.board, leaf.activeMask, leaf.playerToMoveID, move, leaf.hash)
+		hash := state.hash
+		ttIdx := int(hash & TTMask)
+		var nextNode *MCGSNode
+		if entry := tt[ttIdx]; entry.hash == hash && entry.node != nil {
+			if entry.node.Matches(state.board, state.nextPlayerID, state.activeMask, hash) {
+				nextNode = entry.node
+			}
+		}
+
+		if nextNode == nil {
+			nextNode = NewMCGSNode(state.board, state.nextPlayerID, state.activeMask, hash, state.winnerID)
+			tt[ttIdx] = TTEntry{hash: hash, node: nextNode}
+		}
+
+		var result [3]float64
+		if nextNode.winnerID != -1 {
+			result[nextNode.winnerID] = 1.0
+		} else {
+			var s int
+			result, s, _ = RunSimulation(nextNode.board, state.activeMask, state.nextPlayerID)
+			totalSteps += s
+		}
+
+		edgeIdx := len(leaf.Edges)
+		leaf.Edges = append(leaf.Edges, MCGSEdge{
+			Move:   move,
+			Dest:   nextNode,
+			Visits: 0,
+		})
+		path = append(path, PathStep{Node: nextNode, EdgeIdx: edgeIdx})
 		m.Backprop(path, result)
 	}
 
@@ -649,21 +647,6 @@ func NewMCGSNode(board Board, playerToMoveID int, activeMask uint8, hash uint64,
 }
 func (n *MCGSNode) Matches(board Board, playerToMoveID int, activeMask uint8, hash uint64) bool {
 	return n.hash == hash && n.playerToMoveID == playerToMoveID && n.activeMask == activeMask && n.board == board
-}
-
-func (n *MCGSNode) GetPossibleMoves() Bitboard {
-	if n.winnerID != -1 {
-		return 0
-	}
-	if bits.OnesCount8(n.activeMask) < 2 {
-		return 0
-	}
-	if (n.activeMask & (1 << uint(n.playerToMoveID))) == 0 {
-		return 0
-	}
-	nextID := getNextPlayer(n.playerToMoveID, n.activeMask)
-	threats := AnalyzeThreats(n.board, n.playerToMoveID, nextID)
-	return GetBestMoves(n.board, threats)
 }
 
 type State struct {
