@@ -696,6 +696,7 @@ func SimulateStep(board Board, activeMask uint8, currentID int, move Move, curre
 		newMask := activeMask & ^(1 << uint(currentID))
 		if bits.OnesCount8(newMask) == 1 {
 			winnerID := bits.TrailingZeros8(newMask)
+			newHash ^= zobristActive[activeMask] ^ zobristActive[newMask]
 			return State{board: newBoard, nextPlayerID: -1, activeMask: newMask, winnerID: winnerID, hash: newHash}
 		}
 		nextID := getNextPlayer(currentID, newMask)

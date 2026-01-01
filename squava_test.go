@@ -114,7 +114,7 @@ func slowGetWinsAndLosses(bb Bitboard, empty Bitboard) (wins Bitboard, loses Bit
 }
 
 func TestGetWinsAndLossesRandomized(t *testing.T) {
-	for seed := int64(0); seed < 1000; seed++ {
+	for seed := int64(0); seed < 10000; seed++ {
 		xorState = uint64(seed + 1)
 		// Generate random board
 		var b, e uint64
@@ -402,6 +402,70 @@ func TestRunSimulationRandomized(t *testing.T) {
 		}
 		if boardOpt != boardRef {
 			t.Errorf("Iteration %d: Final board mismatch.", i)
+		}
+	}
+}
+
+func TestZobristIncrementalFuzz(t *testing.T) {
+	for i := 0; i < 10000; i++ {
+		// 1. Generate Random Board
+		board := Board{}
+		// Randomly fill ~1/3 of the board
+		for j := 0; j < 20; j++ {
+			idx := int(xrand() % 64)
+			p := int(xrand() % 3)
+			if (board.Occupied & (1 << uint(idx))) == 0 {
+				board.Set(idx, p)
+			}
+		}
+
+		// 2. Setup Random Valid Context
+		// Active mask must have at least 2 players
+		var activeMask uint8
+		for {
+			activeMask = uint8(xrand() % 8)
+			if bits.OnesCount8(activeMask) >= 2 {
+				break
+			}
+		}
+
+		// Current player must be in active mask
+		var currentID int
+		for {
+			currentID = int(xrand() % 3)
+			if (activeMask & (1 << uint(currentID))) != 0 {
+				break
+			}
+		}
+
+		// 3. Select a Random Valid Move
+		empty := ^board.Occupied
+		if empty == 0 {
+			continue // Full board, retry
+		}
+		// Pick a random bit from empty
+		count := bits.OnesCount64(uint64(empty))
+		if count == 0 {
+			continue
+		}
+		n := int(xrand() % uint64(count))
+		// Find n-th bit
+		idx := SelectBit64(uint64(empty), n)
+		move := MoveFromIndex(idx)
+
+		// 4. Compute Initial Hash
+		initialHash := ZobristHash(board, currentID, activeMask)
+
+		// 5. Execute Step (Incremental Update)
+		newState := SimulateStep(board, activeMask, currentID, move, initialHash)
+
+		// 6. Verification: Compute Hash from Scratch on New State
+		refHash := ZobristHash(newState.board, newState.nextPlayerID, newState.activeMask)
+
+		if newState.hash != refHash {
+			t.Errorf("Iteration %d: Hash mismatch.\nState: %+v\nIncremental: %016x\nReference:   %016x",
+				i, newState, newState.hash, refHash)
+			return // Stop on first error to avoid spam
 		}
 	}
 }
