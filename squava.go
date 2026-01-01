@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"weak"
 )
 
 // --- Faster random number generation (xorshift64*) ---
@@ -419,7 +418,7 @@ const TTMask = TTSize - 1
 
 type TTEntry struct {
 	hash uint64
-	ptr  weak.Pointer[MCGSNode]
+	node *MCGSNode
 }
 
 type MCTSPlayer struct {
@@ -465,16 +464,15 @@ func (m *MCTSPlayer) GetMove(board Board, players []int, turnIdx int) Move {
 	rootHash := ZobristHash(board, players[turnIdx], activeMask)
 	idx := int(rootHash & TTMask)
 	var root *MCGSNode
-	if entry := tt[idx]; entry.hash == rootHash {
-		candidate := entry.ptr.Value()
-		if candidate != nil && candidate.Matches(board, players[turnIdx], activeMask, rootHash) {
-			root = candidate
+	if entry := tt[idx]; entry.hash == rootHash && entry.node != nil {
+		if entry.node.Matches(board, players[turnIdx], activeMask, rootHash) {
+			root = entry.node
 		}
 	}
 
 	if root == nil {
 		root = NewMCGSNode(board, players[turnIdx], activeMask, rootHash, -1)
-		tt[idx] = TTEntry{hash: rootHash, ptr: weak.Make(root)}
+		tt[idx] = TTEntry{hash: rootHash, node: root}
 	}
 	m.root = root
 
@@ -504,10 +502,9 @@ func (m *MCTSPlayer) GetMove(board Board, players []int, turnIdx int) Move {
 			hash := state.hash
 			ttIdx := int(hash & TTMask)
 			var nextNode *MCGSNode
-			if entry := tt[ttIdx]; entry.hash == hash {
-				candidate := entry.ptr.Value()
-				if candidate != nil && candidate.Matches(state.board, state.nextPlayerID, state.activeMask, hash) {
-					nextNode = candidate
+			if entry := tt[ttIdx]; entry.hash == hash && entry.node != nil {
+				if entry.node.Matches(state.board, state.nextPlayerID, state.activeMask, hash) {
+					nextNode = entry.node
 				}
 			}
 
@@ -515,7 +512,7 @@ func (m *MCTSPlayer) GetMove(board Board, players []int, turnIdx int) Move {
 				result = nextNode.Q // Use existing node's Q for backprop
 			} else {
 				nextNode = NewMCGSNode(state.board, state.nextPlayerID, state.activeMask, hash, state.winnerID)
-				tt[ttIdx] = TTEntry{hash: hash, ptr: weak.Make(nextNode)}
+				tt[ttIdx] = TTEntry{hash: hash, node: nextNode}
 
 				// Rollout ONLY for new nodes
 				if nextNode.winnerID != -1 {
