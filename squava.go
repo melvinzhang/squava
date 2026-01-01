@@ -851,6 +851,7 @@ func (g *SquavaGame) PrintBoard() {
 }
 func (g *SquavaGame) Run() {
 	fmt.Println("Starting 3-Player Squava!")
+	fmt.Printf("Random Seed: %d\n", xorState)
 	fmt.Println("Board Size: 8x8")
 	fmt.Println("Rules: 4-in-a-row wins. 3-in-a-row loses.")
 	for {
@@ -917,6 +918,7 @@ func main() {
 	p3Type := flag.String("p3", "human", "Player 3 type (human/mcts)")
 	iterations := flag.Int("iterations", 1000, "MCTS iterations")
 	cpuProfile := flag.String("cpuprofile", "", "write cpu profile to file")
+	seed := flag.Int64("seed", 0, "Random seed (0 for time-based)")
 	flag.Parse()
 
 	if *cpuProfile != "" {
@@ -932,7 +934,11 @@ func main() {
 		}
 		defer pprof.StopCPUProfile()
 	}
-	xorState = uint64(time.Now().UnixNano())
+	if *seed == 0 {
+		xorState = uint64(time.Now().UnixNano())
+	} else {
+		xorState = uint64(*seed)
+	}
 	if xorState == 0 {
 		xorState = 1
 	}
