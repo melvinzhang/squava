@@ -64,9 +64,12 @@ const (
 )
 
 var (
-	shifts = [4]uint{1, 8, 9, 7}
-	masksL = [4]uint64{0xFEFEFEFEFEFEFEFE, 0xFFFFFFFFFFFFFFFF, 0xFEFEFEFEFEFEFEFE, 0x7F7F7F7F7F7F7F7F}
-	masksR = [4]uint64{0x7F7F7F7F7F7F7F7F, 0xFFFFFFFFFFFFFFFF, 0x7F7F7F7F7F7F7F7F, 0xFEFEFEFEFEFEFEFE}
+	masksL1 = [4]uint64{0xFEFEFEFEFEFEFEFE, 0xFFFFFFFFFFFFFFFF, 0xFEFEFEFEFEFEFEFE, 0x7F7F7F7F7F7F7F7F}
+	masksR1 = [4]uint64{0x7F7F7F7F7F7F7F7F, 0xFFFFFFFFFFFFFFFF, 0x7F7F7F7F7F7F7F7F, 0xFEFEFEFEFEFEFEFE}
+	masksL2 = [4]uint64{0xFCFCFCFCFCFCFCFC, 0xFFFFFFFFFFFFFFFF, 0xFCFCFCFCFCFCFCFC, 0x3F3F3F3F3F3F3F3F}
+	masksR2 = [4]uint64{0x3F3F3F3F3F3F3F3F, 0xFFFFFFFFFFFFFFFF, 0x3F3F3F3F3F3F3F3F, 0xFCFCFCFCFCFCFCFC}
+	masksL3 = [4]uint64{0xF8F8F8F8F8F8F8F8, 0xFFFFFFFFFFFFFFFF, 0xF8F8F8F8F8F8F8F8, 0x1F1F1F1F1F1F1F1F}
+	masksR3 = [4]uint64{0x1F1F1F1F1F1F1F1F, 0xFFFFFFFFFFFFFFFF, 0x1F1F1F1F1F1F1F1F, 0xF8F8F8F8F8F8F8F8}
 )
 
 // Board represents the game state using bitboards
@@ -140,56 +143,126 @@ func GetWinsAndLosses(bb Bitboard, empty Bitboard) (wins Bitboard, loses Bitboar
 
 	// Direction 0: Horizontal (s=1)
 	{
-		ml, mr := masksL[0], masksR[0]
-		r1 := (b >> 1) & mr
-		r2 := (r1 >> 1) & mr
-		r3 := (r2 >> 1) & mr
-		l1 := (b << 1) & ml
-		l2 := (l1 << 1) & ml
-		l3 := (l2 << 1) & ml
-		l |= e & (r1&r2 | r1&l1 | l1&l2)
-		w |= e & (r1&r2&r3 | r1&r2&l1 | r1&l1&l2 | l1&l2&l3)
+		r1 := (b >> 1) & masksR1[0]
+		l1 := (b << 1) & masksL1[0]
+		r2 := (b >> 2) & masksR2[0]
+		l2 := (b << 2) & masksL2[0]
+
+		r1r2 := r1 & r2
+		l1l2 := l1 & l2
+		l |= e & (r1r2 | r1&l1 | l1l2)
+
+		r3 := (b >> 3) & masksR3[0]
+		l3 := (b << 3) & masksL3[0]
+		w |= e & (r1r2&(r3|l1) | l1l2&(r1|l3))
 	}
 
 	// Direction 1: Vertical (s=8)
 	{
 		r1 := (b >> 8)
-		r2 := (r1 >> 8)
-		r3 := (r2 >> 8)
 		l1 := (b << 8)
-		l2 := (l1 << 8)
-		l3 := (l2 << 8)
-		l |= e & (r1&r2 | r1&l1 | l1&l2)
-		w |= e & (r1&r2&r3 | r1&r2&l1 | r1&l1&l2 | l1&l2&l3)
+		r2 := (b >> 16)
+		l2 := (b << 16)
+
+		r1r2 := r1 & r2
+		l1l2 := l1 & l2
+		l |= e & (r1r2 | r1&l1 | l1l2)
+
+		r3 := (b >> 24)
+		l3 := (b << 24)
+		w |= e & (r1r2&(r3|l1) | l1l2&(r1|l3))
 	}
 
 	// Direction 2: Diagonal (s=9)
 	{
-		ml, mr := masksL[2], masksR[2]
-		r1 := (b >> 9) & mr
-		r2 := (r1 >> 9) & mr
-		r3 := (r2 >> 9) & mr
-		l1 := (b << 9) & ml
-		l2 := (l1 << 9) & ml
-		l3 := (l2 << 9) & ml
-		l |= e & (r1&r2 | r1&l1 | l1&l2)
-		w |= e & (r1&r2&r3 | r1&r2&l1 | r1&l1&l2 | l1&l2&l3)
+		r1 := (b >> 9) & masksR1[2]
+		l1 := (b << 9) & masksL1[2]
+		r2 := (b >> 18) & masksR2[2]
+		l2 := (b << 18) & masksL2[2]
+
+		r1r2 := r1 & r2
+		l1l2 := l1 & l2
+		l |= e & (r1r2 | r1&l1 | l1l2)
+
+		r3 := (b >> 27) & masksR3[2]
+		l3 := (b << 27) & masksL3[2]
+		w |= e & (r1r2&(r3|l1) | l1l2&(r1|l3))
 	}
 
 	// Direction 3: Anti-diagonal (s=7)
 	{
-		ml, mr := masksL[3], masksR[3]
-		r1 := (b >> 7) & mr
-		r2 := (r1 >> 7) & mr
-		r3 := (r2 >> 7) & mr
-		l1 := (b << 7) & ml
-		l2 := (l1 << 7) & ml
-		l3 := (l2 << 7) & ml
-		l |= e & (r1&r2 | r1&l1 | l1&l2)
-		w |= e & (r1&r2&r3 | r1&r2&l1 | r1&l1&l2 | l1&l2&l3)
+		r1 := (b >> 7) & masksR1[3]
+		l1 := (b << 7) & masksL1[3]
+		r2 := (b >> 14) & masksR2[3]
+		l2 := (b << 14) & masksL2[3]
+
+		r1r2 := r1 & r2
+		l1l2 := l1 & l2
+		l |= e & (r1r2 | r1&l1 | l1l2)
+
+		r3 := (b >> 21) & masksR3[3]
+		l3 := (b << 21) & masksL3[3]
+		w |= e & (r1r2&(r3|l1) | l1l2&(r1|l3))
 	}
 
 	return Bitboard(w), Bitboard(l & ^w)
+}
+
+func GetWins(bb Bitboard, empty Bitboard) Bitboard {
+	b := uint64(bb)
+	e := uint64(empty)
+	var w uint64
+
+	// Horizontal
+	{
+		r1 := (b >> 1) & masksR1[0]
+		l1 := (b << 1) & masksL1[0]
+		r2 := (b >> 2) & masksR2[0]
+		l2 := (b << 2) & masksL2[0]
+		r1r2 := r1 & r2
+		l1l2 := l1 & l2
+		r3 := (b >> 3) & masksR3[0]
+		l3 := (b << 3) & masksL3[0]
+		w |= e & (r1r2&(r3|l1) | l1l2&(r1|l3))
+	}
+	// Vertical
+	{
+		r1 := (b >> 8)
+		l1 := (b << 8)
+		r2 := (b >> 16)
+		l2 := (b << 16)
+		r1r2 := r1 & r2
+		l1l2 := l1 & l2
+		r3 := (b >> 24)
+		l3 := (b << 24)
+		w |= e & (r1r2&(r3|l1) | l1l2&(r1|l3))
+	}
+	// Diagonal
+	{
+		r1 := (b >> 9) & masksR1[2]
+		l1 := (b << 9) & masksL1[2]
+		r2 := (b >> 18) & masksR2[2]
+		l2 := (b << 18) & masksL2[2]
+		r1r2 := r1 & r2
+		l1l2 := l1 & l2
+		r3 := (b >> 27) & masksR3[2]
+		l3 := (b << 27) & masksL3[2]
+		w |= e & (r1r2&(r3|l1) | l1l2&(r1|l3))
+	}
+	// Anti-diagonal
+	{
+		r1 := (b >> 7) & masksR1[3]
+		l1 := (b << 7) & masksL1[3]
+		r2 := (b >> 14) & masksR2[3]
+		l2 := (b << 14) & masksL2[3]
+		r1r2 := r1 & r2
+		l1l2 := l1 & l2
+		r3 := (b >> 21) & masksR3[3]
+		l3 := (b << 21) & masksL3[3]
+		w |= e & (r1r2&(r3|l1) | l1l2&(r1|l3))
+	}
+
+	return Bitboard(w)
 }
 // ThreatAnalysis holds pre-calculated win/loss bitboards for a given turn.
 type ThreatAnalysis struct {
@@ -420,6 +493,7 @@ func (m *MCTSPlayer) GetMove(board Board, players []int, turnIdx int) Move {
 
 	startRollouts := root.N
 	startTime := time.Now()
+	totalSteps := 0
 
 	for root.N < m.iterations {
 		path := m.Select(root)
@@ -428,7 +502,7 @@ func (m *MCTSPlayer) GetMove(board Board, players []int, turnIdx int) Move {
 		var result [3]float64
 		if leaf.untriedMoves != 0 {
 			count := bits.OnesCount64(uint64(leaf.untriedMoves))
-			pick := randIntn(count)
+			pick := int(xrand() % uint64(count))
 			temp := uint64(leaf.untriedMoves)
 			for j := 0; j < pick; j++ {
 				temp &= temp - 1
@@ -460,7 +534,9 @@ func (m *MCTSPlayer) GetMove(board Board, players []int, turnIdx int) Move {
 				if nextNode.winnerID != -1 {
 					result[nextNode.winnerID] = 1.0
 				} else {
-					result = RunSimulation(nextNode.board, nextNode.activeMask, nextNode.playerToMoveID)
+					var s int
+					result, s = RunSimulation(nextNode.board, nextNode.activeMask, nextNode.playerToMoveID)
+					totalSteps += s
 				}
 				nextNode.U = result
 				nextNode.Q = result
@@ -486,8 +562,8 @@ func (m *MCTSPlayer) GetMove(board Board, players []int, turnIdx int) Move {
 	elapsed := time.Since(startTime)
 	totalRollouts := root.N - startRollouts
 	if elapsed.Seconds() > 0 {
-		rolloutsPerSec := float64(totalRollouts) / elapsed.Seconds()
-		fmt.Printf("Rollouts: %d, Time: %v, RPS: %.2f\n", totalRollouts, elapsed, rolloutsPerSec)
+		sps := float64(totalSteps) / elapsed.Seconds()
+		fmt.Printf("Rollouts: %d, Steps: %d, Time: %v, SPS: %.2f\n", totalRollouts, totalSteps, elapsed, sps)
 	}
 
 	// Stats and Selection
@@ -589,16 +665,19 @@ func (m *MCTSPlayer) Backprop(path []PathStep, result [3]float64) {
 		step := path[i]
 		node := step.Node
 		node.N++
-		fn := float64(node.N)
-		node.Q[0] += (result[0] - node.Q[0]) / fn
-		node.Q[1] += (result[1] - node.Q[1]) / fn
-		node.Q[2] += (result[2] - node.Q[2]) / fn
+		invN := 1.0 / float64(node.N)
+		node.Q[0] += (result[0] - node.Q[0]) * invN
+		node.Q[1] += (result[1] - node.Q[1]) * invN
+		node.Q[2] += (result[2] - node.Q[2]) * invN
+
 		// Update cached coeff
-		if node.N+1 < len(coeffTable) {
-			node.UCB1Coeff = coeffTable[node.N+1]
+		nPlus1 := node.N + 1
+		if nPlus1 < len(coeffTable) {
+			node.UCB1Coeff = coeffTable[nPlus1]
 		} else {
-			node.UCB1Coeff = 2.0 * math.Sqrt(math.Log(float64(node.N+1)))
+			node.UCB1Coeff = 2.0 * math.Sqrt(math.Log(float64(nPlus1)))
 		}
+
 		if i > 0 && step.EdgeIdx != -1 {
 			parent := path[i-1].Node
 			edge := &parent.Edges[step.EdgeIdx]
@@ -685,28 +764,30 @@ func SimulateStep(board Board, activeMask uint8, currentID int, move Move) State
 	nextID := getNextPlayer(currentID, activeMask)
 	return State{board: newBoard, nextPlayerID: nextID, activeMask: activeMask, winnerID: -1}
 }
-func RunSimulation(board Board, activeMask uint8, currentID int) [3]float64 {
+func RunSimulation(board Board, activeMask uint8, currentID int) ([3]float64, int) {
 	simBoard := board
 	simMask := activeMask
 	curr := currentID
+	steps := 0
 	for {
+		steps++
 		if simMask&(simMask-1) == 0 {
 			var res [3]float64
 			res[bits.TrailingZeros8(simMask)] = 1.0
-			return res
+			return res, steps
 		}
 
-		nextP := getNextPlayer(curr, simMask)
 		empty := ^simBoard.Occupied
-		myWins, myLoses := GetWinsAndLosses(simBoard.GetPlayerBoard(curr), empty)
-
+		pBoard := simBoard.GetPlayerBoard(curr)
+		myWins, myLoses := GetWinsAndLosses(pBoard, empty)
 		if myWins != 0 {
 			var res [3]float64
 			res[curr] = 1.0
-			return res
+			return res, steps
 		}
 
-		nextWins, _ := GetWinsAndLosses(simBoard.GetPlayerBoard(nextP), empty)
+		nextP := int(nextPlayerTable[curr][simMask])
+		nextWins := GetWins(simBoard.GetPlayerBoard(nextP), empty)
 
 		var moves Bitboard
 		mustCheckLoss := true
@@ -722,7 +803,7 @@ func RunSimulation(board Board, activeMask uint8, currentID int) [3]float64 {
 		}
 
 		if moves == 0 {
-			return [3]float64{}
+			return [3]float64{}, steps
 		}
 
 		var selectedIdx int
@@ -730,7 +811,7 @@ func RunSimulation(board Board, activeMask uint8, currentID int) [3]float64 {
 		if count == 1 {
 			selectedIdx = bits.TrailingZeros64(uint64(moves))
 		} else {
-			pick := randIntn(count)
+			pick := int(xrand() % uint64(count))
 			temp := uint64(moves)
 			for i := 0; i < pick; i++ {
 				temp &= temp - 1
@@ -738,7 +819,6 @@ func RunSimulation(board Board, activeMask uint8, currentID int) [3]float64 {
 			selectedIdx = bits.TrailingZeros64(temp)
 		}
 
-		// Inline and specialize simBoard.Set
 		mask := Bitboard(uint64(1) << selectedIdx)
 		simBoard.Occupied |= mask
 		switch curr {
@@ -751,19 +831,17 @@ func RunSimulation(board Board, activeMask uint8, currentID int) [3]float64 {
 		}
 
 		if mustCheckLoss {
-			_, isLoss := CheckBoard(simBoard.GetPlayerBoard(curr))
-			if isLoss {
+			if (myLoses & mask) != 0 {
 				simMask &= ^(1 << uint(curr))
 				if simMask&(simMask-1) == 0 {
 					var res [3]float64
 					res[bits.TrailingZeros8(simMask)] = 1.0
-					return res
+					return res, steps
 				}
-				curr = getNextPlayer(curr, simMask)
+				curr = int(nextPlayerTable[curr][simMask])
 				continue
 			}
 		}
-
 		curr = nextP
 	}
 }

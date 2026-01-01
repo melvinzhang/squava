@@ -221,7 +221,7 @@ func TestDrawOnFullBoard(t *testing.T) {
 	}
 	// Simulation should terminate with a draw (all zeros) if no moves left
 	// We force a state where no wins/losses are possible in 1 move
-	res := RunSimulation(board, 0x07, 0)
+	res, _ := RunSimulation(board, 0x07, 0)
 	if res[0] != 0 || res[1] != 0 || res[2] != 0 {
 		// Note: in a random simulation someone might win/lose,
 		// but if we reach moves == 0 it should be [0,0,0]
@@ -242,5 +242,55 @@ func TestMCTSHeuristic(t *testing.T) {
 	move := player.GetMove(board, []int{0, 1, 2}, 0)
 	if move.ToIndex() != 24 {
 		t.Errorf("MCTS failed to block opponent win at A4, chose %d", move.ToIndex())
+	}
+}
+
+func TestGetWins(t *testing.T) {
+	// 1. Horizontal win at A1-D1 (bits 0,1,2,3). If A1, B1, C1 are set, D1 (bit 3) should be a win.
+	bb := Bitboard((1 << 0) | (1 << 1) | (1 << 2))
+	empty := Bitboard(1 << 3)
+	wins := GetWins(bb, empty)
+	if wins != (1 << 3) {
+		t.Errorf("Horizontal win failed. Expected bit 3, got %016x", uint64(wins))
+	}
+
+	// 2. Vertical win at A1-A4 (bits 0,8,16,24). If A1, A2, A4 are set, A3 (bit 16) should be a win.
+	bb = Bitboard((1 << 0) | (1 << 8) | (1 << 24))
+	empty = Bitboard(1 << 16)
+	wins = GetWins(bb, empty)
+	if wins != (1 << 16) {
+		t.Errorf("Vertical win failed. Expected bit 16, got %016x", uint64(wins))
+	}
+
+	// 3. Diagonal win at A1-D4 (bits 0,9,18,27). If B2, C3, D4 are set, A1 (bit 0) should be a win.
+	bb = Bitboard((1 << 9) | (1 << 18) | (1 << 27))
+	empty = Bitboard(1 << 0)
+	wins = GetWins(bb, empty)
+	if wins != (1 << 0) {
+		t.Errorf("Diagonal win failed. Expected bit 0, got %016x", uint64(wins))
+	}
+
+	// 4. Anti-diagonal win at H1-E4 (bits 7,14,21,28). If H1, G2, F3 are set, E4 (bit 28) should be a win.
+	bb = Bitboard((1 << 7) | (1 << 14) | (1 << 21))
+	empty = Bitboard(1 << 28)
+	wins = GetWins(bb, empty)
+	if wins != (1 << 28) {
+		t.Errorf("Anti-diagonal win failed. Expected bit 28, got %016x", uint64(wins))
+	}
+
+	// 5. No win possible
+	bb = Bitboard((1 << 0) | (1 << 1))
+	empty = Bitboard(1 << 2)
+	wins = GetWins(bb, empty)
+	if wins != 0 {
+		t.Errorf("Expected no wins, got %016x", uint64(wins))
+	}
+
+	// 6. Win blocked by piece not being in 'empty'
+	bb = Bitboard((1 << 0) | (1 << 1) | (1 << 2))
+	empty = Bitboard(0) // D1 (bit 3) is NOT empty
+	wins = GetWins(bb, empty)
+	if wins != 0 {
+		t.Errorf("Expected win to be blocked by non-empty square, got %016x", uint64(wins))
 	}
 }
