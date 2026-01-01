@@ -1,9 +1,12 @@
 package main
 
 import (
+	"flag"
 	"math/bits"
 	"testing"
 )
+
+var fuzzIterations = flag.Int("fuzz_iters", 10000, "Number of iterations for fuzz tests")
 
 func TestCheckBoard(t *testing.T) {
 	// A horizontal win at the start of the row (A1, B1, C1, D1)
@@ -39,10 +42,10 @@ func slowGetWinsAndLosses(bb Bitboard, empty Bitboard) (wins Bitboard, loses Bit
 	var w, l uint64
 
 	directions := []struct{ dr, dc int }{
-		{0, 1},  // Horizontal
-		{1, 0},  // Vertical
-		{1, 1},  // Diagonal
-		{1, -1}, // Anti-diagonal
+		{0, 1},
+		{1, 0},
+		{1, 1},
+		{1, -1},
 	}
 
 	for i := 0; i < 64; i++ {
@@ -65,7 +68,7 @@ func slowGetWinsAndLosses(bb Bitboard, empty Bitboard) (wins Bitboard, loses Bit
 						if (nr == r && nc == c) || (b&(1<<uint(nr*8+nc))) != 0 {
 							count++
 						}
-					}
+						}
 				}
 				if count == 4 {
 					isWin = true
@@ -94,7 +97,7 @@ func slowGetWinsAndLosses(bb Bitboard, empty Bitboard) (wins Bitboard, loses Bit
 						if (nr == r && nc == c) || (b&(1<<uint(nr*8+nc))) != 0 {
 							count++
 						}
-					}
+						}
 				}
 				if count == 3 {
 					isLoss = true
@@ -114,7 +117,7 @@ func slowGetWinsAndLosses(bb Bitboard, empty Bitboard) (wins Bitboard, loses Bit
 }
 
 func TestGetWinsAndLossesRandomized(t *testing.T) {
-	for seed := int64(0); seed < 10000; seed++ {
+	for seed := 0; seed < *fuzzIterations; seed++ {
 		xorState = uint64(seed + 1)
 		// Generate random board
 		var b, e uint64
@@ -367,7 +370,7 @@ func referenceRunSimulation(board Board, activeMask uint8, currentID int) ([3]fl
 }
 
 func TestRunSimulationRandomized(t *testing.T) {
-	for i := 0; i < 10000; i++ {
+	for i := 0; i < *fuzzIterations; i++ {
 		board := Board{}
 		for j := 0; j < 20; j++ {
 			idx := int(xrand() % 64)
@@ -407,7 +410,7 @@ func TestRunSimulationRandomized(t *testing.T) {
 }
 
 func TestZobristIncrementalFuzz(t *testing.T) {
-	for i := 0; i < 10000; i++ {
+	for i := 0; i < *fuzzIterations; i++ {
 		// 1. Generate Random Board
 		board := Board{}
 		// Randomly fill ~1/3 of the board
@@ -484,7 +487,7 @@ func TestSelectBit64Fuzz(t *testing.T) {
 		return 64
 	}
 
-	for i := 0; i < 100000; i++ {
+	for i := 0; i < *fuzzIterations*10; i++ {
 		// Generate various types of bit patterns
 		var v uint64
 		switch i % 4 {
@@ -516,7 +519,7 @@ func TestSelectBit64Fuzz(t *testing.T) {
 }
 
 func TestHeuristicMoveGenerationFuzz(t *testing.T) {
-	for i := 0; i < 10000; i++ {
+	for i := 0; i < *fuzzIterations; i++ {
 		// 1. Generate Random Board
 		board := Board{}
 		for j := 0; j < 25; j++ {
@@ -723,25 +726,47 @@ func ValidateMCTSGraph(t *testing.T, root *MCGSNode) {
 }
 
 func TestMCTSInvariants(t *testing.T) {
-	// Run a short game/simulation to build a graph
-	player := NewMCTSPlayer("Tester", "T", 0, 2000) // Adequate iterations to build structure
-	board := Board{}
+	// Use fewer iterations for MCTS fuzzing to keep test time reasonable per run, 
+	// unless specifically scaling up.
+	mctsIters := 200
+	fuzzRuns := *fuzzIterations / 10 // scale down total runs as MCTS is heavy
 
-	// Force a specific scenario or random play
-	// Let's set up a mid-game state to encourage transpositions
-	board.Set(0, 0)
-	board.Set(1, 1)
-	board.Set(8, 0)
-	board.Set(9, 1)
+	for i := 0; i < fuzzRuns; i++ {
+		// 1. Generate Random Board
+		board := Board{}
+		for j := 0; j < 25; j++ {
+			idx := int(xrand() % 64)
+			p := int(xrand() % 3)
+			if (board.Occupied & (1 << uint(idx))) == 0 {
+				board.Set(idx, p)
+			}
+		}
 
-	// Run MCTS search
-	// We don't care about the resulting move, just the graph structure
-	_ = player.GetMove(board, []int{0, 1, 2}, 0)
+		// Ensure board is clean for MCTS start
+		clean := true
+		for p := 0; p < 3; p++ {
+			isW, isL := CheckBoard(board.P[p])
+			if isW || isL {
+				clean = false
+				break
+			}
+		}
+		if !clean {
+			continue
+		}
+		
+		// Run a short game/simulation to build a graph
+		player := NewMCTSPlayer("Tester", "T", 0, mctsIters) 
+		
+		// We don't care about the resulting move, just the graph structure
+		_ = player.GetMove(board, []int{0, 1, 2}, 0)
 
-	if player.root == nil {
-		t.Fatal("MCTS did not generate a root node")
+		if player.root == nil {
+			t.Errorf("Iteration %d: MCTS did not generate a root node", i)
+			continue
+		}
+
+		// Validate the resulting graph
+		ValidateMCTSGraph(t, player.root)
 	}
-
-	// Validate the resulting graph
-	ValidateMCTSGraph(t, player.root)
 }
