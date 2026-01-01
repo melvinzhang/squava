@@ -60,18 +60,15 @@ const (
 	FileA uint64 = 0x0101010101010101
 	FileH uint64 = 0x8080808080808080
 	Full  uint64 = 0xFFFFFFFFFFFFFFFF
+
+	MaskNotA   uint64 = 0xFEFEFEFEFEFEFEFE
+	MaskNotH   uint64 = 0x7F7F7F7F7F7F7F7F
+	MaskNotAB  uint64 = 0xFCFCFCFCFCFCFCFC
+	MaskNotGH  uint64 = 0x3F3F3F3F3F3F3F3F
+	MaskNotABC uint64 = 0xF8F8F8F8F8F8F8F8
+	MaskNotFGH uint64 = 0x1F1F1F1F1F1F1F1F
 )
 
-var (
-	masksL1 = [4]uint64{0xFEFEFEFEFEFEFEFE, 0xFFFFFFFFFFFFFFFF, 0xFEFEFEFEFEFEFEFE, 0x7F7F7F7F7F7F7F7F}
-	masksR1 = [4]uint64{0x7F7F7F7F7F7F7F7F, 0xFFFFFFFFFFFFFFFF, 0x7F7F7F7F7F7F7F7F, 0xFEFEFEFEFEFEFEFE}
-	masksL2 = [4]uint64{0xFCFCFCFCFCFCFCFC, 0xFFFFFFFFFFFFFFFF, 0xFCFCFCFCFCFCFCFC, 0x3F3F3F3F3F3F3F3F}
-	masksR2 = [4]uint64{0x3F3F3F3F3F3F3F3F, 0xFFFFFFFFFFFFFFFF, 0x3F3F3F3F3F3F3F3F, 0xFCFCFCFCFCFCFCFC}
-	masksL3 = [4]uint64{0xF8F8F8F8F8F8F8F8, 0xFFFFFFFFFFFFFFFF, 0xF8F8F8F8F8F8F8F8, 0x1F1F1F1F1F1F1F1F}
-	masksR3 = [4]uint64{0x1F1F1F1F1F1F1F1F, 0xFFFFFFFFFFFFFFFF, 0x1F1F1F1F1F1F1F1F, 0xF8F8F8F8F8F8F8F8}
-)
-
-// Board represents the game state using bitboards
 type Board struct {
 	P        [3]Bitboard
 	Occupied Bitboard
@@ -94,14 +91,14 @@ func (p *PlayerInfo) Symbol() string { return p.symbol }
 func (p *PlayerInfo) ID() int        { return p.id }
 
 type Move struct {
-	r, c int
+	r, c int8
 }
 
 func (m Move) ToIndex() int {
-	return m.r*8 + m.c
+	return int(m.r)*8 + int(m.c)
 }
 func MoveFromIndex(idx int) Move {
-	return Move{r: idx / 8, c: idx % 8}
+	return Move{r: int8(idx / 8), c: int8(idx % 8)}
 }
 
 // --- Bitboard Logic ---
@@ -128,17 +125,17 @@ func GetWinsAndLosses(bb Bitboard, empty Bitboard) (wins Bitboard, loses Bitboar
 
 	// Direction 0: Horizontal (s=1)
 	{
-		r1 := (b >> 1) & masksR1[0]
-		l1 := (b << 1) & masksL1[0]
-		r2 := (b >> 2) & masksR2[0]
-		l2 := (b << 2) & masksL2[0]
+		r1 := (b >> 1) & MaskNotH
+		l1 := (b << 1) & MaskNotA
+		r2 := (b >> 2) & MaskNotGH
+		l2 := (b << 2) & MaskNotAB
 
 		r1r2 := r1 & r2
 		l1l2 := l1 & l2
 		l |= e & (r1r2 | r1&l1 | l1l2)
 
-		r3 := (b >> 3) & masksR3[0]
-		l3 := (b << 3) & masksL3[0]
+		r3 := (b >> 3) & MaskNotFGH
+		l3 := (b << 3) & MaskNotABC
 		w |= e & (r1r2&(r3|l1) | l1l2&(r1|l3))
 	}
 
@@ -160,33 +157,33 @@ func GetWinsAndLosses(bb Bitboard, empty Bitboard) (wins Bitboard, loses Bitboar
 
 	// Direction 2: Diagonal (s=9)
 	{
-		r1 := (b >> 9) & masksR1[2]
-		l1 := (b << 9) & masksL1[2]
-		r2 := (b >> 18) & masksR2[2]
-		l2 := (b << 18) & masksL2[2]
+		r1 := (b >> 9) & MaskNotH
+		l1 := (b << 9) & MaskNotA
+		r2 := (b >> 18) & MaskNotGH
+		l2 := (b << 18) & MaskNotAB
 
 		r1r2 := r1 & r2
 		l1l2 := l1 & l2
 		l |= e & (r1r2 | r1&l1 | l1l2)
 
-		r3 := (b >> 27) & masksR3[2]
-		l3 := (b << 27) & masksL3[2]
+		r3 := (b >> 27) & MaskNotFGH
+		l3 := (b << 27) & MaskNotABC
 		w |= e & (r1r2&(r3|l1) | l1l2&(r1|l3))
 	}
 
 	// Direction 3: Anti-diagonal (s=7)
 	{
-		r1 := (b >> 7) & masksR1[3]
-		l1 := (b << 7) & masksL1[3]
-		r2 := (b >> 14) & masksR2[3]
-		l2 := (b << 14) & masksL2[3]
+		r1 := (b >> 7) & MaskNotA
+		l1 := (b << 7) & MaskNotH
+		r2 := (b >> 14) & MaskNotAB
+		l2 := (b << 14) & MaskNotGH
 
 		r1r2 := r1 & r2
 		l1l2 := l1 & l2
 		l |= e & (r1r2 | r1&l1 | l1l2)
 
-		r3 := (b >> 21) & masksR3[3]
-		l3 := (b << 21) & masksL3[3]
+		r3 := (b >> 21) & MaskNotABC
+		l3 := (b << 21) & MaskNotFGH
 		w |= e & (r1r2&(r3|l1) | l1l2&(r1|l3))
 	}
 
@@ -260,7 +257,7 @@ func (h *HumanPlayer) GetMove(board Board, players []int, turnIdx int) Move {
 			for temp != 0 {
 				idx := bits.TrailingZeros64(uint64(temp))
 				m := MoveFromIndex(idx)
-				forcedStr = append(forcedStr, fmt.Sprintf("%c%d", m.c+65, m.r+1))
+				forcedStr = append(forcedStr, fmt.Sprintf("%c%d", int(m.c)+65, int(m.r)+1))
 				temp &= Bitboard(^(uint64(1) << idx))
 			}
 			fmt.Printf("FORCED MOVE! You must block the next player. Valid moves: %s\n", strings.Join(forcedStr, ", "))
@@ -283,7 +280,7 @@ func (h *HumanPlayer) GetMove(board Board, players []int, turnIdx int) Move {
 			fmt.Println("Cell already occupied.")
 			continue
 		}
-		move := Move{r, c}
+		move := Move{int8(r), int8(c)}
 		if forcedMoves != 0 && (forcedMoves&(Bitboard(1)<<idx)) == 0 {
 			fmt.Println("Invalid move. You must block the opponent or win immediately.")
 			continue
@@ -467,7 +464,6 @@ func (m *MCTSPlayer) GetMove(board Board, players []int, turnIdx int) Move {
 					result, s, _ = RunSimulation(nextNode.board, nextNode.activeMask, nextNode.playerToMoveID)
 					totalSteps += s
 				}
-				nextNode.U = result
 				nextNode.Q = result
 			}
 			// Add Edge
@@ -533,7 +529,7 @@ func (m *MCTSPlayer) GetMove(board Board, players []int, turnIdx int) Move {
 		}
 		for i := 0; i < limit; i++ {
 			s := stats[i]
-			fmt.Printf("  %c%d: Visits: %d, Winrate: %.2f%%\n", s.mv.c+65, s.mv.r+1, s.visits, s.winrate*100)
+			fmt.Printf("  %c%d: Visits: %d, Winrate: %.2f%%\n", int(s.mv.c)+65, int(s.mv.r)+1, s.visits, s.winrate*100)
 		}
 	}
 	if bestVisits == -1 {
@@ -624,7 +620,6 @@ type MCGSNode struct {
 	board          Board
 	hash           uint64
 	N              int
-	U              [3]float64
 	Q              [3]float64
 	Edges          []MCGSEdge
 	playerToMoveID int
@@ -883,7 +878,7 @@ func (g *SquavaGame) Run() {
 		move := currentPlayer.GetMove(g.board, activeIDs, g.turnIdx)
 
 		if _, ok := currentPlayer.(*MCTSPlayer); ok {
-			fmt.Printf("%s chooses %c%d\n", currentPlayer.Name(), move.c+65, move.r+1)
+			fmt.Printf("%s chooses %c%d\n", currentPlayer.Name(), int(move.c)+65, int(move.r)+1)
 		}
 		g.board.Set(move.ToIndex(), currentPlayer.ID())
 		isWin, isLoss := CheckBoard(g.board.GetPlayerBoard(currentPlayer.ID()))
