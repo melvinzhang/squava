@@ -450,21 +450,18 @@ func (m *MCTSPlayer) GetMove(board Board, players []int, turnIdx int) Move {
 				}
 			}
 
-			if nextNode != nil {
-				result = nextNode.Q // Use existing node's Q for backprop
-			} else {
+			if nextNode == nil {
 				nextNode = NewMCGSNode(state.board, state.nextPlayerID, state.activeMask, hash, state.winnerID)
 				tt[ttIdx] = TTEntry{hash: hash, node: nextNode}
+			}
 
-				// Rollout ONLY for new nodes
-				if nextNode.winnerID != -1 {
-					result[nextNode.winnerID] = 1.0
-				} else {
-					var s int
-					result, s, _ = RunSimulation(nextNode.board, nextNode.activeMask, nextNode.playerToMoveID)
-					totalSteps += s
-				}
-				nextNode.Q = result
+			// Always rollout for non-terminal nodes to avoid virtual visit bias
+			if nextNode.winnerID != -1 {
+				result[nextNode.winnerID] = 1.0
+			} else {
+				var s int
+				result, s, _ = RunSimulation(nextNode.board, nextNode.activeMask, nextNode.playerToMoveID)
+				totalSteps += s
 			}
 			// Add Edge
 			edgeIdx := len(leaf.Edges)
