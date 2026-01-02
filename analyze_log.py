@@ -19,7 +19,7 @@ def analyze_squava_logs(filepaths):
     # Blunder Tracking
     # List of dicts: {seed, move_num, player, old_wr, new_wr, diff, context}
     blunders = []
-    DROP_THRESHOLD = 50.0
+    DROP_THRESHOLD = 51.0
     
     games_processed = 0
 
@@ -47,6 +47,7 @@ def analyze_squava_logs(filepaths):
         for game_data in games:
             games_processed += 1
             moves_in_game = 0
+            current_move_num = 0
             current_player = None
             game_winner = None
             game_win_type = None
@@ -67,9 +68,10 @@ def analyze_squava_logs(filepaths):
                     seed = seed_match.group(1)
                 
                 # 1. Detect Turn
-                turn_match = re.search(r"Move \d+: Player (\d)", line)
+                turn_match = re.search(r"Move (\d+): Player (\d)", line)
                 if turn_match:
-                    current_player = int(turn_match.group(1))
+                    current_move_num = int(turn_match.group(1))
+                    current_player = int(turn_match.group(2))
                     
                 # 2. Detect Estimated Winrate
                 wr_match = re.search(r"Estimated Winrate: ([\d\.]+)%", line)
@@ -86,7 +88,7 @@ def analyze_squava_logs(filepaths):
                             context = move_history[-3:] if len(move_history) >= 3 else move_history
                             blunders.append({
                                 'seed': seed,
-                                'move_idx': moves_in_game,
+                                'move_idx': current_move_num,
                                 'player': current_player,
                                 'old': old_wr,
                                 'new': wr,
@@ -120,7 +122,7 @@ def analyze_squava_logs(filepaths):
                             context = move_history[-3:]
                             blunders.append({
                                 'seed': seed,
-                                'move_idx': moves_in_game,
+                                'move_idx': current_move_num,
                                 'player': eliminated_player,
                                 'old': old_wr,
                                 'new': 0.0,
