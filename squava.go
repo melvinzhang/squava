@@ -426,55 +426,14 @@ func (m *MCTSPlayer) GetMove(board Board, players []int, turnIdx int) Move {
 		path := m.Select(root)
 		leaf := path[len(path)-1].Node
 
-		if leaf.untriedMoves == 0 {
-			// Select stops at untriedMoves != 0 or terminal (len(Edges) == 0)
-			m.Backprop(path, leaf.Q)
-			continue
-		}
-
-		// Expansion
-		count := bits.OnesCount64(uint64(leaf.untriedMoves))
-		var idx int
-		if count == 1 {
-			idx = bits.TrailingZeros64(uint64(leaf.untriedMoves))
-		} else {
-			hi, _ := bits.Mul64(xrand(), uint64(count))
-			idx = SelectBit64(uint64(leaf.untriedMoves), int(hi))
-		}
-		move := MoveFromIndex(idx)
-		leaf.untriedMoves &= Bitboard(^(uint64(1) << idx))
-
-		state := SimulateStep(leaf.board, leaf.activeMask, leaf.playerToMoveID, move, leaf.hash)
-		hash := state.hash
-		ttIdx := int(hash & TTMask)
-		var nextNode *MCGSNode
-		if entry := tt[ttIdx]; entry.hash == hash && entry.node != nil {
-			if entry.node.Matches(state.board, state.nextPlayerID, state.activeMask, hash) {
-				nextNode = entry.node
-			}
-		}
-
-		if nextNode == nil {
-			nextNode = NewMCGSNode(state.board, state.nextPlayerID, state.activeMask, hash, state.winnerID)
-			tt[ttIdx] = TTEntry{hash: hash, node: nextNode}
-		}
-
 		var result [3]float64
-		if nextNode.winnerID != -1 {
-			result[nextNode.winnerID] = 1.0
+		if leaf.winnerID != -1 {
+			result[leaf.winnerID] = 1.0
 		} else {
 			var s int
-			result, s, _ = RunSimulation(nextNode.board, state.activeMask, state.nextPlayerID)
+			result, s, _ = RunSimulation(leaf.board, leaf.activeMask, leaf.playerToMoveID)
 			totalSteps += s
 		}
-
-		edgeIdx := len(leaf.Edges)
-		leaf.Edges = append(leaf.Edges, MCGSEdge{
-			Move:   move,
-			Dest:   nextNode,
-			Visits: 0,
-		})
-		path = append(path, PathStep{Node: nextNode, EdgeIdx: edgeIdx})
 		m.Backprop(path, result)
 	}
 
@@ -549,39 +508,94 @@ var negInf = math.Inf(-1)
 func (m *MCTSPlayer) Select(root *MCGSNode) []PathStep {
 	m.path = m.path[:0]
 	m.path = append(m.path, PathStep{Node: root, EdgeIdx: -1})
-	current := root
-	for {
-		if current.untriedMoves != 0 {
-			return m.path // Expand here
+
+	curr := root
+	for curr.winnerID == -1 {
+		// --- Expansion Phase ---
+		// If the current node has moves that haven't been added to the graph yet,
+		// pick one at random and expand the search.
+		if curr.untriedMoves != 0 {
+			// Randomly select and remove one of the untried moves.
+			count := bits.OnesCount64(uint64(curr.untriedMoves))
+			var moveIdx int
+			if count == 1 {
+				moveIdx = bits.TrailingZeros64(uint64(curr.untriedMoves))
+			} else {
+				hi, _ := bits.Mul64(xrand(), uint64(count))
+				moveIdx = SelectBit64(uint64(curr.untriedMoves), int(hi))
+			}
+			move := MoveFromIndex(moveIdx)
+			curr.untriedMoves &= ^(Bitboard(1) << moveIdx)
+
+			// Determine the new state and look it up in the Transposition Table.
+			state := SimulateStep(curr.board, curr.activeMask, curr.playerToMoveID, move, curr.hash)
+			ttIdx := int(state.hash & TTMask)
+
+			var child *MCGSNode
+			isNew := true
+			if entry := tt[ttIdx]; entry.hash == state.hash && entry.node != nil {
+				if entry.node.Matches(state.board, state.nextPlayerID, state.activeMask, state.hash) {
+					child = entry.node
+					isNew = false
+				}
+			}
+
+			if isNew {
+				child = NewMCGSNode(state.board, state.nextPlayerID, state.activeMask, state.hash, state.winnerID)
+				tt[ttIdx] = TTEntry{hash: state.hash, node: child}
+			}
+
+			// Add the edge to the graph and record it in the selection path.
+			edgeIdx := len(curr.Edges)
+			curr.Edges = append(curr.Edges, MCGSEdge{Move: move, Dest: child})
+			m.path = append(m.path, PathStep{Node: child, EdgeIdx: edgeIdx})
+
+			// If we've added a genuinely new node to the TT, we stop and proceed to rollout.
+			// Otherwise, we continue selection from this existing node.
+			if isNew {
+				return m.path
+			}
+			curr = child
+			continue
 		}
-		if len(current.Edges) == 0 {
-			return m.path // Terminal
+
+		// --- Selection Phase ---
+		// If all moves from the current node have been explored, use the UCB1
+		// formula to select the most promising child for further exploration.
+		if len(curr.Edges) == 0 {
+			break // Terminal node reached.
 		}
+
+		bestIdx := -1
 		bestScore := negInf
-		bestEdgeIdx := -1
-		c := current.UCB1Coeff
-		edges := current.Edges
-		for i := range edges {
-			edge := &edges[i]
+		coeff := curr.UCB1Coeff
+		pID := curr.playerToMoveID
+
+		for i := range curr.Edges {
+			edge := &curr.Edges[i]
 			vPlus1 := edge.Visits + 1
+
 			var u float64
 			if vPlus1 < len(invSqrtTable) {
-				u = c * invSqrtTable[vPlus1]
+				u = coeff * invSqrtTable[vPlus1]
 			} else {
-				u = c / math.Sqrt(float64(vPlus1))
+				u = coeff / math.Sqrt(float64(vPlus1))
 			}
-			score := edge.Dest.Q[current.playerToMoveID] + u
+			score := edge.Dest.Q[pID] + u
+
 			if score > bestScore {
 				bestScore = score
-				bestEdgeIdx = i
+				bestIdx = i
 			}
 		}
-		if bestEdgeIdx == -1 {
+
+		if bestIdx == -1 {
 			break
 		}
-		bestEdge := &edges[bestEdgeIdx]
-		m.path = append(m.path, PathStep{Node: bestEdge.Dest, EdgeIdx: bestEdgeIdx})
-		current = bestEdge.Dest
+
+		bestEdge := &curr.Edges[bestIdx]
+		m.path = append(m.path, PathStep{Node: bestEdge.Dest, EdgeIdx: bestIdx})
+		curr = bestEdge.Dest
 	}
 	return m.path
 }
