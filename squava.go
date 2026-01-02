@@ -929,6 +929,7 @@ func (g *SquavaGame) Run() {
 	fmt.Printf("Random Seed: %d\n", xorState)
 	fmt.Println("Board Size: 8x8")
 	fmt.Println("Rules: 4-in-a-row wins. 3-in-a-row loses.")
+	moveCount := 1
 	for {
 		if len(g.players) == 0 {
 			fmt.Println("All players eliminated? Draw.")
@@ -942,7 +943,7 @@ func (g *SquavaGame) Run() {
 		currentPlayer := g.players[g.turnIdx]
 
 		g.PrintBoard()
-		fmt.Printf("Turn: %s (%s)\n", currentPlayer.Name(), currentPlayer.Symbol())
+		fmt.Printf("Move %d: %s (%s)\n", moveCount, currentPlayer.Name(), currentPlayer.Symbol())
 
 		activeIDs := make([]int, len(g.players))
 		for i, p := range g.players {
@@ -959,6 +960,7 @@ func (g *SquavaGame) Run() {
 			fmt.Printf("%s chooses %c%d\n", currentPlayer.Name(), int(move.c)+65, int(move.r)+1)
 		}
 		g.board.Set(move.ToIndex(), currentPlayer.ID())
+		moveCount++
 		isWin, isLoss := CheckBoard(g.board.GetPlayerBoard(currentPlayer.ID()))
 		if isWin {
 			g.PrintBoard()
