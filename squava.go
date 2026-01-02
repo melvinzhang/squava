@@ -757,12 +757,7 @@ func RunSimulation(board Board, activeMask uint8, currentID int) ([3]float64, in
 		if moves == 0 {
 			var res [3]float64
 			count := bits.OnesCount8(simMask)
-			score := 0.0
-			if count == 3 {
-				score = 1.0 / 3.0
-			} else if count == 2 {
-				score = 0.5
-			}
+			score := 1.0 / float64(count)
 			for p := 0; p < 3; p++ {
 				if (simMask & (1 << uint(p))) != 0 {
 					res[p] = score
@@ -901,6 +896,14 @@ func (g *SquavaGame) Run() {
 			if g.turnIdx >= len(g.players) {
 				g.turnIdx = 0
 			}
+
+			// Check if only one player remains BEFORE checking for a draw.
+			if len(g.players) == 1 {
+				g.PrintBoard()
+				fmt.Printf("%s wins as the last player standing!\n", g.players[0].Name())
+				return
+			}
+
 			if g.board.Occupied == Bitboard(Full) {
 				g.PrintBoard()
 				fmt.Println("Board full! Game is a Draw between remaining players.")
@@ -910,6 +913,7 @@ func (g *SquavaGame) Run() {
 		}
 		if g.board.Occupied == Bitboard(Full) {
 			g.PrintBoard()
+			// If we reached here, len(g.players) must be > 1.
 			fmt.Println("Board full! Game is a Draw.")
 			return
 		}

@@ -315,12 +315,7 @@ func referenceRunSimulation(board Board, activeMask uint8, currentID int) ([3]fl
 		if moves == 0 {
 			var res [3]float64
 			count := bits.OnesCount8(simMask)
-			score := 0.0
-			if count == 3 {
-				score = 1.0 / 3.0
-			} else if count == 2 {
-				score = 0.5
-			}
+			score := 1.0 / float64(count)
 			for p := 0; p < 3; p++ {
 				if (simMask & (1 << uint(p))) != 0 {
 					res[p] = score
