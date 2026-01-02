@@ -36,6 +36,9 @@ profile: build
 	./$(BINARY_NAME) -p1 mcts -p2 mcts -p3 mcts -iterations $(ITERATIONS) -cpuprofile cpu.prof
 	go tool pprof -top cpu.prof
 
-analyze:
+pprof:
 	go tool pprof -list RunSimulation cpu.prof
 	go tool pprof -list Select cpu.prof
+
+analyze:
+	python3 analyze_log.py logs/*
