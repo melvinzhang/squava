@@ -20,12 +20,13 @@ repro_game_%.log:
 
 benchmark: build
 	@echo "Starting benchmark: 100 games with 1M iterations..."
-	@rm -f log_1M
+	@mkdir -p logs
 	@for i in $$(seq 100); do \
-		echo "Running game $$i/100..." ; \
-		./$(BINARY_NAME) -p1 mcts -p2 mcts -p3 mcts -iterations $(ITERATIONS) >> log_1M 2>&1 ; \
+		seed=$$(od -An -N4 -tu4 /dev/urandom | tr -d ' \n'); \
+		echo "Running game $$i/100 with seed $$seed..." ; \
+		./$(BINARY_NAME) -p1 mcts -p2 mcts -p3 mcts -iterations $(ITERATIONS) -seed $$seed > logs/game_$$seed.log 2>&1 ; \
 	done
-	@echo "Benchmark complete. Results saved to log_1M"
+	@echo "Benchmark complete. Results saved to logs/"
 
 clean:
 	go clean
