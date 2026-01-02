@@ -309,8 +309,8 @@ func isValidCoord(r, c int) bool {
 }
 
 var (
-	invSqrtTable    [100000]float64
-	coeffTable      [100000]float64
+	invSqrtTable    [100000]float32
+	coeffTable      [100000]float32
 	tt              TranspositionTable
 	select8         [256][8]uint8
 	nextPlayerTable [3][256]int8
@@ -380,10 +380,10 @@ func init() {
 		}
 	}
 	for i := 1; i < len(invSqrtTable); i++ {
-		invSqrtTable[i] = 1.0 / math.Sqrt(float64(i))
+		invSqrtTable[i] = float32(1.0 / math.Sqrt(float64(i)))
 	}
 	for i := 1; i < len(coeffTable); i++ {
-		coeffTable[i] = 2.0 * math.Sqrt(math.Log(float64(i)))
+		coeffTable[i] = float32(2.0 * math.Sqrt(math.Log(float64(i))))
 	}
 	tt = make(TranspositionTable, TTSize)
 }
@@ -477,7 +477,7 @@ func (m *MCTSPlayer) GetMove(board Board, players []int, turnIdx int) Move {
 		path := m.Select(root)
 		leaf := path[len(path)-1].Node
 
-		var result [3]float64
+		var result [3]float32
 		if leaf.winnerID != -1 {
 			result[leaf.winnerID] = 1.0
 		} else {
@@ -506,7 +506,7 @@ func (m *MCTSPlayer) GetMove(board Board, players []int, turnIdx int) Move {
 	type MoveStat struct {
 		mv      Move
 		visits  int
-		winrate float64
+		winrate float32
 	}
 	stats := []MoveStat{}
 	for i := range root.EdgeDests {
@@ -600,7 +600,7 @@ func (m *MCTSPlayer) Select(root *MCGSNode) []PathStep {
 		}
 
 		bestIdx := -1
-		bestScore := negInf
+		bestScore := float32(negInf)
 		coeff := curr.UCB1Coeff
 		pID := curr.playerToMoveID
 
@@ -608,13 +608,13 @@ func (m *MCTSPlayer) Select(root *MCGSNode) []PathStep {
 		qs := curr.EdgeQs[pID]
 		for i := range visits {
 			vPlus1 := int(visits[i]) + 1
-			var u float64
+			var u float32
 			if vPlus1 < len(invSqrtTable) {
 				u = coeff * invSqrtTable[vPlus1]
 			} else {
-				u = coeff / math.Sqrt(float64(vPlus1))
+				u = coeff / float32(math.Sqrt(float64(vPlus1)))
 			}
-			score := float64(qs[i]) + u
+			score := qs[i] + u
 			if score > bestScore {
 				bestScore = score
 				bestIdx = i
@@ -631,7 +631,7 @@ func (m *MCTSPlayer) Select(root *MCGSNode) []PathStep {
 	}
 	return m.path
 }
-func (m *MCTSPlayer) Backprop(path []PathStep, result [3]float64) {
+func (m *MCTSPlayer) Backprop(path []PathStep, result [3]float32) {
 	for i := len(path) - 1; i >= 0; i-- {
 		step := path[i]
 		node := step.Node
@@ -648,7 +648,7 @@ type MCGSNode struct {
 	board          Board
 	hash           uint64
 	N              int
-	Q              [3]float64
+	Q              [3]float32
 	EdgeMoves      []Move
 	EdgeDests      []*MCGSNode
 	EdgeVisits     []int32
@@ -657,7 +657,7 @@ type MCGSNode struct {
 	activeMask     uint8
 	winnerID       int
 	untriedMoves   Bitboard
-	UCB1Coeff      float64
+	UCB1Coeff      float32
 }
 
 func (n *MCGSNode) AddEdge(move Move, dest *MCGSNode) int {
@@ -665,15 +665,15 @@ func (n *MCGSNode) AddEdge(move Move, dest *MCGSNode) int {
 	n.EdgeMoves = append(n.EdgeMoves, move)
 	n.EdgeDests = append(n.EdgeDests, dest)
 	n.EdgeVisits = append(n.EdgeVisits, 0)
-	n.EdgeQs[0] = append(n.EdgeQs[0], float32(dest.Q[0]))
-	n.EdgeQs[1] = append(n.EdgeQs[1], float32(dest.Q[1]))
-	n.EdgeQs[2] = append(n.EdgeQs[2], float32(dest.Q[2]))
+	n.EdgeQs[0] = append(n.EdgeQs[0], dest.Q[0])
+	n.EdgeQs[1] = append(n.EdgeQs[1], dest.Q[1])
+	n.EdgeQs[2] = append(n.EdgeQs[2], dest.Q[2])
 	return idx
 }
 
-func (n *MCGSNode) UpdateStats(result [3]float64) {
+func (n *MCGSNode) UpdateStats(result [3]float32) {
 	n.N++
-	invN := 1.0 / float64(n.N)
+	invN := 1.0 / float32(n.N)
 	n.Q[0] += (result[0] - n.Q[0]) * invN
 	n.Q[1] += (result[1] - n.Q[1]) * invN
 	n.Q[2] += (result[2] - n.Q[2]) * invN
@@ -683,15 +683,15 @@ func (n *MCGSNode) UpdateStats(result [3]float64) {
 	if nPlus1 < len(coeffTable) {
 		n.UCB1Coeff = coeffTable[nPlus1]
 	} else {
-		n.UCB1Coeff = 2.0 * math.Sqrt(math.Log(float64(nPlus1)))
+		n.UCB1Coeff = float32(2.0 * math.Sqrt(math.Log(float64(nPlus1))))
 	}
 }
 
 func (n *MCGSNode) SyncEdge(idx int, child *MCGSNode) {
 	n.EdgeVisits[idx]++
-	n.EdgeQs[0][idx] = float32(child.Q[0])
-	n.EdgeQs[1][idx] = float32(child.Q[1])
-	n.EdgeQs[2][idx] = float32(child.Q[2])
+	n.EdgeQs[0][idx] = child.Q[0]
+	n.EdgeQs[1][idx] = child.Q[1]
+	n.EdgeQs[2][idx] = child.Q[2]
 }
 
 func (n *MCGSNode) PopUntriedMove() (Move, bool) {
@@ -781,7 +781,7 @@ func SelectBit64(v uint64, k int) int {
 	return bits.TrailingZeros64(pdep(uint64(1)<<uint(k), v))
 }
 
-func RunSimulation(board Board, activeMask uint8, currentID int) ([3]float64, int, Board) {
+func RunSimulation(board Board, activeMask uint8, currentID int) ([3]float32, int, Board) {
 	simBoard := board
 	simMask := activeMask
 	curr := currentID
@@ -800,14 +800,14 @@ func RunSimulation(board Board, activeMask uint8, currentID int) ([3]float64, in
 	for {
 		steps++
 		if winnerID, ok := rules.IsTerminal(simMask); ok {
-			var res [3]float64
+			var res [3]float32
 			res[winnerID] = 1.0
 			return res, steps, simBoard
 		}
 
 		myWins := allWins[curr]
 		if myWins != 0 {
-			var res [3]float64
+			var res [3]float32
 			res[curr] = 1.0
 			return res, steps, simBoard
 		}
@@ -830,9 +830,9 @@ func RunSimulation(board Board, activeMask uint8, currentID int) ([3]float64, in
 		}
 
 		if moves == 0 {
-			var res [3]float64
+			var res [3]float32
 			count := bits.OnesCount8(simMask)
-			score := 1.0 / float64(count)
+			score := 1.0 / float32(count)
 			for p := 0; p < 3; p++ {
 				if (simMask & (1 << uint(p))) != 0 {
 					res[p] = score
@@ -859,7 +859,7 @@ func RunSimulation(board Board, activeMask uint8, currentID int) ([3]float64, in
 			newMask, winnerID := rules.ResolveLoss(simMask, curr)
 			simMask = newMask
 			if winnerID != -1 {
-				var res [3]float64
+				var res [3]float32
 				res[winnerID] = 1.0
 				return res, steps, simBoard
 			}

@@ -216,9 +216,9 @@ func TestDrawOnFullBoard(t *testing.T) {
 	// Simulation should terminate with a draw if no moves left
 	res, _, _ := RunSimulation(board, 0x07, 0)
 	// Expected draw score for 3 players is 1/3 each
-	expected := 1.0 / 3.0
+	expected := float32(1.0 / 3.0)
 	for i := 0; i < 3; i++ {
-		if math.Abs(res[i]-expected) > 1e-9 {
+		if math.Abs(float64(res[i]-expected)) > 1e-6 {
 			t.Errorf("Expected draw score %f for player %d, got %f", expected, i, res[i])
 		}
 	}
@@ -279,13 +279,13 @@ func TestRunSimulationDetailed(t *testing.T) {
 		t.Errorf("Elimination failed. P0 should have lost, but won: %v", res)
 	}
 }
-func referenceRunSimulation(board Board, activeMask uint8, currentID int) ([3]float64, Board) {
+func referenceRunSimulation(board Board, activeMask uint8, currentID int) ([3]float32, Board) {
 	simBoard := board
 	simMask := activeMask
 	curr := currentID
 	for {
 		if simMask&(simMask-1) == 0 {
-			var res [3]float64
+			var res [3]float32
 			res[bits.TrailingZeros8(simMask)] = 1.0
 			return res, simBoard
 		}
@@ -293,7 +293,7 @@ func referenceRunSimulation(board Board, activeMask uint8, currentID int) ([3]fl
 		// Simple version: recompute threats every turn for current player
 		myWins, myLoses := GetWinsAndLosses(simBoard.P[curr], empty)
 		if myWins != 0 {
-			var res [3]float64
+			var res [3]float32
 			res[curr] = 1.0
 			return res, simBoard
 		}
@@ -313,9 +313,9 @@ func referenceRunSimulation(board Board, activeMask uint8, currentID int) ([3]fl
 			}
 		}
 		if moves == 0 {
-			var res [3]float64
+			var res [3]float32
 			count := bits.OnesCount8(simMask)
-			score := 1.0 / float64(count)
+			score := 1.0 / float32(count)
 			for p := 0; p < 3; p++ {
 				if (simMask & (1 << uint(p))) != 0 {
 					res[p] = score
@@ -340,7 +340,7 @@ func referenceRunSimulation(board Board, activeMask uint8, currentID int) ([3]fl
 			if isLoss {
 				simMask &= ^(1 << uint(curr))
 				if simMask&(simMask-1) == 0 {
-					var res [3]float64
+					var res [3]float32
 					res[bits.TrailingZeros8(simMask)] = 1.0
 					return res, simBoard
 				}
@@ -813,7 +813,7 @@ func TestMCTSBackpropIncremental(t *testing.T) {
 	node := NewMCGSNode(Board{}, 0, 0x07, 1234, -1)
 
 	path := []PathStep{{Node: node, EdgeIdx: -1}}
-	results := [][3]float64{
+	results := [][3]float32{
 		{1.0, 0.0, 0.0},
 		{0.0, 1.0, 0.0},
 		{0.5, 0.5, 0.0},
@@ -831,7 +831,7 @@ func TestMCTSBackpropIncremental(t *testing.T) {
 	sum := [3]float64{1.5, 1.5, 0.0}
 	for i := 0; i < 3; i++ {
 		expectedQ := sum[i] / float64(expectedN)
-		if math.Abs(node.Q[i]-expectedQ) > 1e-9 {
+		if math.Abs(float64(node.Q[i])-expectedQ) > 1e-9 {
 			t.Errorf("Player %d Q mismatch: expected %f, got %f", i, expectedQ, node.Q[i])
 		}
 	}
@@ -840,7 +840,7 @@ func TestMCTSBackpropIncremental(t *testing.T) {
 func TestMCGSNodeMethods(t *testing.T) {
 	node := NewMCGSNode(Board{}, 0, 0x07, 1234, -1)
 	child := NewMCGSNode(Board{}, 1, 0x07, 5678, -1)
-	child.Q = [3]float64{0.1, 0.2, 0.3}
+	child.Q = [3]float32{0.1, 0.2, 0.3}
 
 	// Test AddEdge
 	move := Move{r: 1, c: 1}
@@ -858,25 +858,25 @@ func TestMCGSNodeMethods(t *testing.T) {
 		t.Errorf("Expected 0 visits, got %d", node.EdgeVisits[idx])
 	}
 	for i := 0; i < 3; i++ {
-		if node.EdgeQs[i][idx] != float32(child.Q[i]) {
+		if node.EdgeQs[i][idx] != child.Q[i] {
 			t.Errorf("Edge Q%d mismatch: expected %f, got %f", i, child.Q[i], node.EdgeQs[i][idx])
 		}
 	}
 
 	// Test SyncEdge
-	child.Q = [3]float64{0.4, 0.5, 0.6}
+	child.Q = [3]float32{0.4, 0.5, 0.6}
 	node.SyncEdge(idx, child)
 	if node.EdgeVisits[idx] != 1 {
 		t.Errorf("Expected 1 visit, got %d", node.EdgeVisits[idx])
 	}
 	for i := 0; i < 3; i++ {
-		if node.EdgeQs[i][idx] != float32(child.Q[i]) {
+		if node.EdgeQs[i][idx] != child.Q[i] {
 			t.Errorf("Edge Q%d mismatch after sync: expected %f, got %f", i, child.Q[i], node.EdgeQs[i][idx])
 		}
 	}
 
 	// Test UpdateStats
-	result := [3]float64{1.0, 0.0, 0.0}
+	result := [3]float32{1.0, 0.0, 0.0}
 	node.UpdateStats(result)
 	if node.N != 1 {
 		t.Errorf("Expected N=1, got %d", node.N)
