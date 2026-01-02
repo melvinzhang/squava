@@ -15,6 +15,9 @@ test:
 fuzz:
 	go test -v . -args -fuzz_iters=$(FUZZ_ITERS)
 
+repro_game_%.log:
+	./squava -p1 mcts -p2 mcts -p3 mcts -iterations 1000000 -seed $* | tee $@
+
 benchmark: build
 	@echo "Starting benchmark: 100 games with 1M iterations..."
 	@rm -f log_1M
