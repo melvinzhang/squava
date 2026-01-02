@@ -757,3 +757,79 @@ func TestFullGameTerminationFuzz(t *testing.T) {
 		}
 	}
 }
+
+func TestIncrementalUpdateEquivalence(t *testing.T) {
+	// Simulate the process of updating a node multiple times
+	// and compare incremental average with full recalculation.
+
+	results := [][3]float64{
+		{1.0, 0.0, 0.0},
+		{0.0, 1.0, 0.0},
+		{0.0, 0.0, 1.0},
+		{0.33, 0.33, 0.33},
+		{0.5, 0.5, 0.0},
+		{1.0, 0.0, 0.0},
+	}
+
+	// 1. Incremental Update (as in Backprop)
+	var qInc [3]float64
+	var nInc int
+	for _, res := range results {
+		nInc++
+		invN := 1.0 / float64(nInc)
+		qInc[0] += (res[0] - qInc[0]) * invN
+		qInc[1] += (res[1] - qInc[1]) * invN
+		qInc[2] += (res[2] - qInc[2]) * invN
+	}
+
+	// 2. Full Recalculation (Sum / N)
+	var sum [3]float64
+	for _, res := range results {
+		sum[0] += res[0]
+		sum[1] += res[1]
+		sum[2] += res[2]
+	}
+	qFull := [3]float64{
+		sum[0] / float64(len(results)),
+		sum[1] / float64(len(results)),
+		sum[2] / float64(len(results)),
+	}
+
+	// Comparison
+	epsilon := 1e-9
+	for i := 0; i < 3; i++ {
+		if math.Abs(qInc[i]-qFull[i]) > epsilon {
+			t.Errorf("Mismatch at player %d: Incremental %f, Full %f", i, qInc[i], qFull[i])
+		}
+	}
+}
+
+func TestMCTSBackpropIncremental(t *testing.T) {
+	// Test the actual Backprop method of MCTSPlayer
+	m := NewMCTSPlayer("Test", "T", 0, 100)
+	node := NewMCGSNode(Board{}, 0, 0x07, 1234, -1)
+
+	path := []PathStep{{Node: node, EdgeIdx: -1}}
+	results := [][3]float64{
+		{1.0, 0.0, 0.0},
+		{0.0, 1.0, 0.0},
+		{0.5, 0.5, 0.0},
+	}
+
+	for _, res := range results {
+		m.Backprop(path, res)
+	}
+
+	expectedN := len(results)
+	if node.N != expectedN {
+		t.Errorf("Expected N=%d, got %d", expectedN, node.N)
+	}
+
+	sum := [3]float64{1.5, 1.5, 0.0}
+	for i := 0; i < 3; i++ {
+		expectedQ := sum[i] / float64(expectedN)
+		if math.Abs(node.Q[i]-expectedQ) > 1e-9 {
+			t.Errorf("Player %d Q mismatch: expected %f, got %f", i, expectedQ, node.Q[i])
+		}
+	}
+}
