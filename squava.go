@@ -311,10 +311,49 @@ func isValidCoord(r, c int) bool {
 var (
 	invSqrtTable    [100000]float64
 	coeffTable      [100000]float64
-	tt              []TTEntry
+	tt              TranspositionTable
 	select8         [256][8]uint8
 	nextPlayerTable [3][256]int8
 )
+
+type Zobrist struct{}
+
+func (Zobrist) Move(h uint64, pID int, idx int) uint64 {
+	return h ^ zobristP[pID][idx]
+}
+
+func (Zobrist) SwapTurn(h uint64, oldPID, newPID int) uint64 {
+	if newPID == -1 {
+		return h ^ zobristTurn[oldPID]
+	}
+	return h ^ zobristTurn[oldPID] ^ zobristTurn[newPID]
+}
+
+func (Zobrist) UpdateMask(h uint64, oldMask, newMask uint8) uint64 {
+	return h ^ zobristActive[oldMask] ^ zobristActive[newMask]
+}
+
+var zobrist Zobrist
+
+type GameRules struct{}
+
+func (GameRules) IsTerminal(mask uint8) (int, bool) {
+	if bits.OnesCount8(mask) == 1 {
+		return bits.TrailingZeros8(mask), true
+	}
+	return -1, false
+}
+
+func (GameRules) ResolveLoss(mask uint8, currentID int) (newMask uint8, winnerID int) {
+	newMask = mask & ^(1 << uint(currentID))
+	winnerID = -1
+	if bits.OnesCount8(newMask) == 1 {
+		winnerID = bits.TrailingZeros8(newMask)
+	}
+	return newMask, winnerID
+}
+
+var rules GameRules
 
 func init() {
 	for i := 0; i < 256; i++ {
@@ -346,7 +385,7 @@ func init() {
 	for i := 1; i < len(coeffTable); i++ {
 		coeffTable[i] = 2.0 * math.Sqrt(math.Log(float64(i)))
 	}
-	tt = make([]TTEntry, TTSize)
+	tt = make(TranspositionTable, TTSize)
 }
 
 func getNextPlayer(currentID int, activeMask uint8) int {
@@ -360,6 +399,24 @@ const TTMask = TTSize - 1
 type TTEntry struct {
 	hash uint64
 	node *MCGSNode
+}
+
+type TranspositionTable []TTEntry
+
+func (tt TranspositionTable) Lookup(hash uint64, board Board, playerID int, mask uint8) *MCGSNode {
+	idx := hash & TTMask
+	entry := tt[idx]
+	if entry.hash == hash && entry.node != nil {
+		if entry.node.Matches(board, playerID, mask, hash) {
+			return entry.node
+		}
+	}
+	return nil
+}
+
+func (tt TranspositionTable) Store(hash uint64, node *MCGSNode) {
+	idx := hash & TTMask
+	tt[idx] = TTEntry{hash: hash, node: node}
 }
 
 type MCTSPlayer struct {
@@ -404,17 +461,11 @@ func (m *MCTSPlayer) GetMove(board Board, players []int, turnIdx int) Move {
 		activeMask |= 1 << uint(pID)
 	}
 	rootHash := ZobristHash(board, players[turnIdx], activeMask)
-	idx := int(rootHash & TTMask)
-	var root *MCGSNode
-	if entry := tt[idx]; entry.hash == rootHash && entry.node != nil {
-		if entry.node.Matches(board, players[turnIdx], activeMask, rootHash) {
-			root = entry.node
-		}
-	}
+	root := tt.Lookup(rootHash, board, players[turnIdx], activeMask)
 
 	if root == nil {
 		root = NewMCGSNode(board, players[turnIdx], activeMask, rootHash, -1)
-		tt[idx] = TTEntry{hash: rootHash, node: root}
+		tt.Store(rootHash, root)
 	}
 	m.root = root
 
@@ -517,35 +568,16 @@ func (m *MCTSPlayer) Select(root *MCGSNode) []PathStep {
 		// --- Expansion Phase ---
 		// If the current node has moves that haven't been added to the graph yet,
 		// pick one at random and expand the search.
-		if curr.untriedMoves != 0 {
-			// Randomly select and remove one of the untried moves.
-			count := bits.OnesCount64(uint64(curr.untriedMoves))
-			var moveIdx int
-			if count == 1 {
-				moveIdx = bits.TrailingZeros64(uint64(curr.untriedMoves))
-			} else {
-				hi, _ := bits.Mul64(xrand(), uint64(count))
-				moveIdx = SelectBit64(uint64(curr.untriedMoves), int(hi))
-			}
-			move := MoveFromIndex(moveIdx)
-			curr.untriedMoves &= ^(Bitboard(1) << moveIdx)
-
+		if move, ok := curr.PopUntriedMove(); ok {
 			// Determine the new state and look it up in the Transposition Table.
 			state := SimulateStep(curr.board, curr.activeMask, curr.playerToMoveID, move, curr.hash)
-			ttIdx := int(state.hash & TTMask)
 
-			var child *MCGSNode
-			isNew := true
-			if entry := tt[ttIdx]; entry.hash == state.hash && entry.node != nil {
-				if entry.node.Matches(state.board, state.nextPlayerID, state.activeMask, state.hash) {
-					child = entry.node
-					isNew = false
-				}
-			}
+			child := tt.Lookup(state.hash, state.board, state.nextPlayerID, state.activeMask)
+			isNew := child == nil
 
 			if isNew {
 				child = NewMCGSNode(state.board, state.nextPlayerID, state.activeMask, state.hash, state.winnerID)
-				tt[ttIdx] = TTEntry{hash: state.hash, node: child}
+				tt.Store(state.hash, child)
 			}
 
 			// Add the edge to the graph and record it in the selection path.
@@ -662,6 +694,23 @@ func (n *MCGSNode) SyncEdge(idx int, child *MCGSNode) {
 	n.EdgeQs[2][idx] = float32(child.Q[2])
 }
 
+func (n *MCGSNode) PopUntriedMove() (Move, bool) {
+	if n.untriedMoves == 0 {
+		return Move{}, false
+	}
+	count := bits.OnesCount64(uint64(n.untriedMoves))
+	var moveIdx int
+	if count == 1 {
+		moveIdx = bits.TrailingZeros64(uint64(n.untriedMoves))
+	} else {
+		hi, _ := bits.Mul64(xrand(), uint64(count))
+		moveIdx = SelectBit64(uint64(n.untriedMoves), int(hi))
+	}
+	move := MoveFromIndex(moveIdx)
+	n.untriedMoves &= ^(Bitboard(1) << moveIdx)
+	return move, true
+}
+
 type MCGSEdge struct {
 	Move   Move
 	Dest   *MCGSNode
@@ -704,25 +753,26 @@ func SimulateStep(board Board, activeMask uint8, currentID int, move Move, curre
 	newBoard.P[currentID] |= mask
 	newBoard.Occupied |= mask
 
-	newHash := currentHash ^ zobristP[currentID][idx] ^ zobristTurn[currentID]
+	newHash := zobrist.Move(currentHash, currentID, idx)
 
 	isWin, isLoss := CheckBoard(newBoard.GetPlayerBoard(currentID))
 	if isWin {
+		newHash = zobrist.SwapTurn(newHash, currentID, -1)
 		return State{board: newBoard, nextPlayerID: -1, activeMask: activeMask, winnerID: currentID, hash: newHash}
 	}
 	if isLoss {
-		newMask := activeMask & ^(1 << uint(currentID))
-		if bits.OnesCount8(newMask) == 1 {
-			winnerID := bits.TrailingZeros8(newMask)
-			newHash ^= zobristActive[activeMask] ^ zobristActive[newMask]
+		newMask, winnerID := rules.ResolveLoss(activeMask, currentID)
+		newHash = zobrist.UpdateMask(newHash, activeMask, newMask)
+		if winnerID != -1 {
+			newHash = zobrist.SwapTurn(newHash, currentID, -1)
 			return State{board: newBoard, nextPlayerID: -1, activeMask: newMask, winnerID: winnerID, hash: newHash}
 		}
 		nextID := getNextPlayer(currentID, newMask)
-		newHash ^= zobristTurn[nextID] ^ zobristActive[activeMask] ^ zobristActive[newMask]
+		newHash = zobrist.SwapTurn(newHash, currentID, nextID)
 		return State{board: newBoard, nextPlayerID: nextID, activeMask: newMask, winnerID: -1, hash: newHash}
 	}
 	nextID := getNextPlayer(currentID, activeMask)
-	newHash ^= zobristTurn[nextID]
+	newHash = zobrist.SwapTurn(newHash, currentID, nextID)
 	return State{board: newBoard, nextPlayerID: nextID, activeMask: activeMask, winnerID: -1, hash: newHash}
 }
 func pdep(src, mask uint64) uint64
@@ -749,9 +799,9 @@ func RunSimulation(board Board, activeMask uint8, currentID int) ([3]float64, in
 
 	for {
 		steps++
-		if simMask&(simMask-1) == 0 {
+		if winnerID, ok := rules.IsTerminal(simMask); ok {
 			var res [3]float64
-			res[bits.TrailingZeros8(simMask)] = 1.0
+			res[winnerID] = 1.0
 			return res, steps, simBoard
 		}
 
@@ -806,10 +856,11 @@ func RunSimulation(board Board, activeMask uint8, currentID int) ([3]float64, in
 		empty &= ^mask
 
 		if mustCheckLoss && (allLoses[curr]&mask) != 0 {
-			simMask &= ^(1 << uint(curr))
-			if simMask&(simMask-1) == 0 {
+			newMask, winnerID := rules.ResolveLoss(simMask, curr)
+			simMask = newMask
+			if winnerID != -1 {
 				var res [3]float64
-				res[bits.TrailingZeros8(simMask)] = 1.0
+				res[winnerID] = 1.0
 				return res, steps, simBoard
 			}
 			curr = int(nextPlayerTable[curr][simMask])

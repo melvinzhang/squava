@@ -836,3 +836,126 @@ func TestMCTSBackpropIncremental(t *testing.T) {
 		}
 	}
 }
+
+func TestMCGSNodeMethods(t *testing.T) {
+	node := NewMCGSNode(Board{}, 0, 0x07, 1234, -1)
+	child := NewMCGSNode(Board{}, 1, 0x07, 5678, -1)
+	child.Q = [3]float64{0.1, 0.2, 0.3}
+
+	// Test AddEdge
+	move := Move{r: 1, c: 1}
+	idx := node.AddEdge(move, child)
+	if idx != 0 {
+		t.Errorf("Expected edge index 0, got %d", idx)
+	}
+	if node.EdgeMoves[idx] != move {
+		t.Errorf("Edge move mismatch")
+	}
+	if node.EdgeDests[idx] != child {
+		t.Errorf("Edge destination mismatch")
+	}
+	if node.EdgeVisits[idx] != 0 {
+		t.Errorf("Expected 0 visits, got %d", node.EdgeVisits[idx])
+	}
+	for i := 0; i < 3; i++ {
+		if node.EdgeQs[i][idx] != float32(child.Q[i]) {
+			t.Errorf("Edge Q%d mismatch: expected %f, got %f", i, child.Q[i], node.EdgeQs[i][idx])
+		}
+	}
+
+	// Test SyncEdge
+	child.Q = [3]float64{0.4, 0.5, 0.6}
+	node.SyncEdge(idx, child)
+	if node.EdgeVisits[idx] != 1 {
+		t.Errorf("Expected 1 visit, got %d", node.EdgeVisits[idx])
+	}
+	for i := 0; i < 3; i++ {
+		if node.EdgeQs[i][idx] != float32(child.Q[i]) {
+			t.Errorf("Edge Q%d mismatch after sync: expected %f, got %f", i, child.Q[i], node.EdgeQs[i][idx])
+		}
+	}
+
+	// Test UpdateStats
+	result := [3]float64{1.0, 0.0, 0.0}
+	node.UpdateStats(result)
+	if node.N != 1 {
+		t.Errorf("Expected N=1, got %d", node.N)
+	}
+	if node.Q[0] != 1.0 {
+		t.Errorf("Expected Q[0]=1.0, got %f", node.Q[0])
+	}
+
+	// Test PopUntriedMove
+	node.untriedMoves = Bitboard(1 << 5)
+	mv, ok := node.PopUntriedMove()
+	if !ok || mv.ToIndex() != 5 {
+		t.Errorf("PopUntriedMove failed: got %v, %v", mv, ok)
+	}
+	if node.untriedMoves != 0 {
+		t.Errorf("Expected untriedMoves to be 0 after pop")
+	}
+}
+
+func TestTranspositionTableMethods(t *testing.T) {
+	table := make(TranspositionTable, TTSize)
+	board := Board{}
+	node := NewMCGSNode(board, 0, 0x07, 1234, -1)
+	hash := uint64(1234)
+
+	table.Store(hash, node)
+	lookedUp := table.Lookup(hash, board, 0, 0x07)
+	if lookedUp != node {
+		t.Errorf("TranspositionTable lookup failed")
+	}
+
+	// Test mismatch
+	if table.Lookup(hash+1, board, 0, 0x07) != nil {
+		t.Errorf("Lookup should fail for different hash")
+	}
+	if table.Lookup(hash, board, 1, 0x07) != nil {
+		t.Errorf("Lookup should fail for different playerID")
+	}
+}
+
+func TestZobristHelper(t *testing.T) {
+	h := uint64(100)
+	h2 := zobrist.Move(h, 0, 10)
+	if h2 != h^zobristP[0][10] {
+		t.Errorf("Zobrist.Move failed")
+	}
+
+	h3 := zobrist.SwapTurn(h, 0, 1)
+	if h3 != h^zobristTurn[0]^zobristTurn[1] {
+		t.Errorf("Zobrist.SwapTurn failed for non-terminal")
+	}
+
+	h4 := zobrist.SwapTurn(h, 0, -1)
+	if h4 != h^zobristTurn[0] {
+		t.Errorf("Zobrist.SwapTurn failed for terminal")
+	}
+
+	h5 := zobrist.UpdateMask(h, 0x07, 0x03)
+	if h5 != h^zobristActive[0x07]^zobristActive[0x03] {
+		t.Errorf("Zobrist.UpdateMask failed")
+	}
+}
+
+func TestGameRulesHelper(t *testing.T) {
+	// Test IsTerminal
+	if winner, ok := rules.IsTerminal(0x01); !ok || winner != 0 {
+		t.Errorf("IsTerminal failed for single player mask 0x01: got %v, %v", winner, ok)
+	}
+	if _, ok := rules.IsTerminal(0x03); ok {
+		t.Errorf("IsTerminal should be false for multi-player mask 0x03")
+	}
+
+	// Test ResolveLoss
+	newMask, winner := rules.ResolveLoss(0x07, 0)
+	if newMask != 0x06 || winner != -1 {
+		t.Errorf("ResolveLoss failed for 3->2 players: got %x, %v", newMask, winner)
+	}
+	newMask, winner = rules.ResolveLoss(0x03, 0)
+	if newMask != 0x02 || winner != 1 {
+		t.Errorf("ResolveLoss failed for 2->1 player (win): got %x, %v", newMask, winner)
+	}
+}
