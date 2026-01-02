@@ -614,28 +614,31 @@ func ValidateMCTSGraph(t *testing.T, root *MCGSNode) {
 		}
 		// 4. Edge Invariants
 		sumEdgeVisits := 0
-		for _, edge := range node.Edges {
-			sumEdgeVisits += edge.Visits
-			if edge.Dest == nil {
+		for i := range node.EdgeDests {
+			edgeVisits := int(node.EdgeVisits[i])
+			edgeDest := node.EdgeDests[i]
+			edgeMove := node.EdgeMoves[i]
+			sumEdgeVisits += edgeVisits
+			if edgeDest == nil {
 				t.Errorf("Node %016x has edge with nil destination", node.hash)
 				continue
 			}
 			// DAG Invariant: Edge Visits vs Child Total Visits
 			// The number of times we traversed THIS edge to get to Child
 			// must be <= Total times Child was visited (from any parent).
-			if edge.Visits > edge.Dest.N {
+			if edgeVisits > edgeDest.N {
 				t.Errorf("Flow violation: Edge from %016x to %016x has %d visits, but child only has %d total visits.",
-					node.hash, edge.Dest.hash, edge.Visits, edge.Dest.N)
+					node.hash, edgeDest.hash, edgeVisits, edgeDest.N)
 			}
 			// 5. State Consistency Check
 			// Re-simulate the move to ensure the hash matches the destination node
-			expectedState := SimulateStep(node.board, node.activeMask, node.playerToMoveID, edge.Move, node.hash)
-			if expectedState.hash != edge.Dest.hash {
+			expectedState := SimulateStep(node.board, node.activeMask, node.playerToMoveID, edgeMove, node.hash)
+			if expectedState.hash != edgeDest.hash {
 				t.Errorf("Hash consistency violation on edge %v: Expected %016x, got %016x",
-					edge.Move, expectedState.hash, edge.Dest.hash)
+					edgeMove, expectedState.hash, edgeDest.hash)
 			}
 			// Recurse
-			checkNode(edge.Dest)
+			checkNode(edgeDest)
 		}
 		// 6. Conservation of Flow (Outgoing)
 		// The number of times we left this node cannot exceed the number of times we visited it.

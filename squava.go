@@ -458,11 +458,14 @@ func (m *MCTSPlayer) GetMove(board Board, players []int, turnIdx int) Move {
 		winrate float64
 	}
 	stats := []MoveStat{}
-	for _, edge := range root.Edges {
-		stats = append(stats, MoveStat{edge.Move, edge.Visits, edge.Dest.Q[myID]})
-		if edge.Visits > bestVisits {
-			bestVisits = edge.Visits
-			bestMove = edge.Move
+	for i := range root.EdgeDests {
+		mv := root.EdgeMoves[i]
+		visits := int(root.EdgeVisits[i])
+		q := root.EdgeDests[i].Q[myID]
+		stats = append(stats, MoveStat{mv, visits, q})
+		if visits > bestVisits {
+			bestVisits = visits
+			bestMove = mv
 		}
 	}
 	// Sort stats by visits descending
@@ -546,10 +549,8 @@ func (m *MCTSPlayer) Select(root *MCGSNode) []PathStep {
 			}
 
 			// Add the edge to the graph and record it in the selection path.
-			edgeIdx := len(curr.Edges)
-			curr.Edges = append(curr.Edges, MCGSEdge{Move: move, Dest: child})
+			edgeIdx := curr.AddEdge(move, child)
 			m.path = append(m.path, PathStep{Node: child, EdgeIdx: edgeIdx})
-
 			// If we've added a genuinely new node to the TT, we stop and proceed to rollout.
 			// Otherwise, we continue selection from this existing node.
 			if isNew {
@@ -562,7 +563,7 @@ func (m *MCTSPlayer) Select(root *MCGSNode) []PathStep {
 		// --- Selection Phase ---
 		// If all moves from the current node have been explored, use the UCB1
 		// formula to select the most promising child for further exploration.
-		if len(curr.Edges) == 0 {
+		if len(curr.EdgeDests) == 0 {
 			break // Terminal node reached.
 		}
 
@@ -571,18 +572,17 @@ func (m *MCTSPlayer) Select(root *MCGSNode) []PathStep {
 		coeff := curr.UCB1Coeff
 		pID := curr.playerToMoveID
 
-		for i := range curr.Edges {
-			edge := &curr.Edges[i]
-			vPlus1 := edge.Visits + 1
-
+		visits := curr.EdgeVisits
+		qs := curr.EdgeQs[pID]
+		for i := range visits {
+			vPlus1 := int(visits[i]) + 1
 			var u float64
 			if vPlus1 < len(invSqrtTable) {
 				u = coeff * invSqrtTable[vPlus1]
 			} else {
 				u = coeff / math.Sqrt(float64(vPlus1))
 			}
-			score := edge.Dest.Q[pID] + u
-
+			score := float64(qs[i]) + u
 			if score > bestScore {
 				bestScore = score
 				bestIdx = i
@@ -593,9 +593,9 @@ func (m *MCTSPlayer) Select(root *MCGSNode) []PathStep {
 			break
 		}
 
-		bestEdge := &curr.Edges[bestIdx]
-		m.path = append(m.path, PathStep{Node: bestEdge.Dest, EdgeIdx: bestIdx})
-		curr = bestEdge.Dest
+		m.path = append(m.path, PathStep{Node: curr.EdgeDests[bestIdx], EdgeIdx: bestIdx})
+		curr = curr.EdgeDests[bestIdx]
+
 	}
 	return m.path
 }
@@ -603,24 +603,11 @@ func (m *MCTSPlayer) Backprop(path []PathStep, result [3]float64) {
 	for i := len(path) - 1; i >= 0; i-- {
 		step := path[i]
 		node := step.Node
-		node.N++
-		invN := 1.0 / float64(node.N)
-		node.Q[0] += (result[0] - node.Q[0]) * invN
-		node.Q[1] += (result[1] - node.Q[1]) * invN
-		node.Q[2] += (result[2] - node.Q[2]) * invN
-
-		// Update cached coeff
-		nPlus1 := node.N + 1
-		if nPlus1 < len(coeffTable) {
-			node.UCB1Coeff = coeffTable[nPlus1]
-		} else {
-			node.UCB1Coeff = 2.0 * math.Sqrt(math.Log(float64(nPlus1)))
-		}
+		node.UpdateStats(result)
 
 		if i > 0 && step.EdgeIdx != -1 {
 			parent := path[i-1].Node
-			edge := &parent.Edges[step.EdgeIdx]
-			edge.Visits++
+			parent.SyncEdge(step.EdgeIdx, node)
 		}
 	}
 }
@@ -630,13 +617,51 @@ type MCGSNode struct {
 	hash           uint64
 	N              int
 	Q              [3]float64
-	Edges          []MCGSEdge
+	EdgeMoves      []Move
+	EdgeDests      []*MCGSNode
+	EdgeVisits     []int32
+	EdgeQs         [3][]float32
 	playerToMoveID int
 	activeMask     uint8
 	winnerID       int
 	untriedMoves   Bitboard
 	UCB1Coeff      float64
 }
+
+func (n *MCGSNode) AddEdge(move Move, dest *MCGSNode) int {
+	idx := len(n.EdgeDests)
+	n.EdgeMoves = append(n.EdgeMoves, move)
+	n.EdgeDests = append(n.EdgeDests, dest)
+	n.EdgeVisits = append(n.EdgeVisits, 0)
+	n.EdgeQs[0] = append(n.EdgeQs[0], float32(dest.Q[0]))
+	n.EdgeQs[1] = append(n.EdgeQs[1], float32(dest.Q[1]))
+	n.EdgeQs[2] = append(n.EdgeQs[2], float32(dest.Q[2]))
+	return idx
+}
+
+func (n *MCGSNode) UpdateStats(result [3]float64) {
+	n.N++
+	invN := 1.0 / float64(n.N)
+	n.Q[0] += (result[0] - n.Q[0]) * invN
+	n.Q[1] += (result[1] - n.Q[1]) * invN
+	n.Q[2] += (result[2] - n.Q[2]) * invN
+
+	// Update cached coeff
+	nPlus1 := n.N + 1
+	if nPlus1 < len(coeffTable) {
+		n.UCB1Coeff = coeffTable[nPlus1]
+	} else {
+		n.UCB1Coeff = 2.0 * math.Sqrt(math.Log(float64(nPlus1)))
+	}
+}
+
+func (n *MCGSNode) SyncEdge(idx int, child *MCGSNode) {
+	n.EdgeVisits[idx]++
+	n.EdgeQs[0][idx] = float32(child.Q[0])
+	n.EdgeQs[1][idx] = float32(child.Q[1])
+	n.EdgeQs[2][idx] = float32(child.Q[2])
+}
+
 type MCGSEdge struct {
 	Move   Move
 	Dest   *MCGSNode
