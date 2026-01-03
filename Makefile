@@ -15,7 +15,7 @@ test:
 fuzz:
 	go test -v . -args -fuzz_iters=$(FUZZ_ITERS)
 
-repro_game_%.log: $(BINARY_NAME)
+repro_game_%.log: build
 	./$(BINARY_NAME) -p1 mcts -p2 mcts -p3 mcts -iterations 1000000 -seed $* | tee $@
 
 benchmark: build
