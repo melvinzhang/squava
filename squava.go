@@ -403,6 +403,14 @@ func getNextPlayer(currentID int, activeMask uint8) int {
 const TTSize = 1 << 24 // ~16M entries
 const TTMask = TTSize - 1
 
+type GameState struct {
+	Board      Board
+	Hash       uint64
+	PlayerID   int
+	ActiveMask uint8
+	WinnerID   int
+}
+
 type TTEntry struct {
 	hash uint64
 	node *MCGSNode
@@ -410,11 +418,11 @@ type TTEntry struct {
 
 type TranspositionTable []TTEntry
 
-func (tt TranspositionTable) Lookup(hash uint64, board Board, playerID int, mask uint8) *MCGSNode {
-	idx := hash & TTMask
+func (tt TranspositionTable) Lookup(gs GameState) *MCGSNode {
+	idx := gs.Hash & TTMask
 	entry := tt[idx]
-	if entry.hash == hash && entry.node != nil {
-		if entry.node.Matches(board, playerID, mask, hash) {
+	if entry.hash == gs.Hash && entry.node != nil {
+		if entry.node.Matches(gs) {
 			return entry.node
 		}
 	}
@@ -468,10 +476,11 @@ func (m *MCTSPlayer) GetMove(board Board, players []int, turnIdx int) Move {
 		activeMask |= 1 << uint(pID)
 	}
 	rootHash := ZobristHash(board, players[turnIdx], activeMask)
-	root := tt.Lookup(rootHash, board, players[turnIdx], activeMask)
+	gs := GameState{Board: board, Hash: rootHash, PlayerID: players[turnIdx], ActiveMask: activeMask, WinnerID: -1}
+	root := tt.Lookup(gs)
 
 	if root == nil {
-		root = NewMCGSNode(board, players[turnIdx], activeMask, rootHash, -1)
+		root = NewMCGSNode(gs)
 		tt.Store(rootHash, root)
 	}
 	m.root = root
@@ -485,11 +494,11 @@ func (m *MCTSPlayer) GetMove(board Board, players []int, turnIdx int) Move {
 		leaf := path[len(path)-1].Node
 
 		var result [3]float32
-		if leaf.winnerID != -1 {
-			result[leaf.winnerID] = 1.0
+		if leaf.WinnerID != -1 {
+			result[leaf.WinnerID] = 1.0
 		} else {
 			var s int
-			result, s, _ = RunSimulation(leaf.board, leaf.activeMask, leaf.playerToMoveID)
+			result, s, _ = RunSimulation(leaf.Board, leaf.ActiveMask, leaf.PlayerID)
 			totalSteps += s
 		}
 		m.Backprop(path, result)
@@ -571,20 +580,20 @@ func (m *MCTSPlayer) Select(root *MCGSNode) []PathStep {
 	m.path = append(m.path, PathStep{Node: root, EdgeIdx: -1})
 
 	curr := root
-	for curr.winnerID == -1 {
+	for curr.WinnerID == -1 {
 		// --- Expansion Phase ---
 		// If the current node has moves that haven't been added to the graph yet,
 		// pick one at random and expand the search.
 		if move, ok := curr.PopUntriedMove(); ok {
 			// Determine the new state and look it up in the Transposition Table.
-			state := SimulateStep(curr.board, curr.activeMask, curr.playerToMoveID, move, curr.hash)
+			state := SimulateStep(curr.Board, curr.ActiveMask, curr.PlayerID, move, curr.Hash)
 
-			child := tt.Lookup(state.hash, state.board, state.nextPlayerID, state.activeMask)
+			child := tt.Lookup(state)
 			isNew := child == nil
 
 			if isNew {
-				child = NewMCGSNode(state.board, state.nextPlayerID, state.activeMask, state.hash, state.winnerID)
-				tt.Store(state.hash, child)
+				child = NewMCGSNode(state)
+				tt.Store(state.Hash, child)
 			}
 
 			// Add the edge to the graph and record it in the selection path.
@@ -609,7 +618,7 @@ func (m *MCTSPlayer) Select(root *MCGSNode) []PathStep {
 		bestIdx := -1
 		bestScore := float32(negInf)
 		coeff := curr.UCB1Coeff
-		pID := curr.playerToMoveID
+		pID := curr.PlayerID
 
 		visits := curr.EdgeVisits
 		qs := curr.EdgeQs[pID]
@@ -652,19 +661,15 @@ func (m *MCTSPlayer) Backprop(path []PathStep, result [3]float32) {
 }
 
 type MCGSNode struct {
-	board          Board
-	hash           uint64
-	N              int
-	Q              [3]float32
-	EdgeMoves      []Move
-	EdgeDests      []*MCGSNode
-	EdgeVisits     []int32
-	EdgeQs         [3][]float32
-	playerToMoveID int
-	activeMask     uint8
-	winnerID       int
-	untriedMoves   Bitboard
-	UCB1Coeff      float32
+	GameState
+	N            int
+	Q            [3]float32
+	EdgeMoves    []Move
+	EdgeDests    []*MCGSNode
+	EdgeVisits   []int32
+	EdgeQs       [3][]float32
+	untriedMoves Bitboard
+	UCB1Coeff    float32
 }
 
 func (n *MCGSNode) AddEdge(move Move, dest *MCGSNode) int {
@@ -716,36 +721,24 @@ type MCGSEdge struct {
 	Visits int
 }
 
-func NewMCGSNode(board Board, playerToMoveID int, activeMask uint8, hash uint64, winnerID int) *MCGSNode {
+func NewMCGSNode(gs GameState) *MCGSNode {
 	var untried Bitboard
-	if winnerID == -1 {
-		nextP := getNextPlayer(playerToMoveID, activeMask)
-		untried = GetBestMoves(board, AnalyzeThreats(board, playerToMoveID, nextP))
+	if gs.WinnerID == -1 {
+		nextP := getNextPlayer(gs.PlayerID, gs.ActiveMask)
+		untried = GetBestMoves(gs.Board, AnalyzeThreats(gs.Board, gs.PlayerID, nextP))
 	}
 	n := &MCGSNode{
-		board:          board,
-		hash:           hash,
-		playerToMoveID: playerToMoveID,
-		activeMask:     activeMask,
-		winnerID:       winnerID,
-		untriedMoves:   untried,
+		GameState:    gs,
+		untriedMoves: untried,
 	}
 	return n
 }
-func (n *MCGSNode) Matches(board Board, playerToMoveID int, activeMask uint8, hash uint64) bool {
-	return n.hash == hash && n.playerToMoveID == playerToMoveID && n.activeMask == activeMask && n.board == board
-}
-
-type State struct {
-	board        Board
-	nextPlayerID int
-	activeMask   uint8
-	winnerID     int
-	hash         uint64
+func (n *MCGSNode) Matches(gs GameState) bool {
+	return n.GameState == gs
 }
 
 // --- Simulation Logic ---
-func SimulateStep(board Board, activeMask uint8, currentID int, move Move, currentHash uint64) State {
+func SimulateStep(board Board, activeMask uint8, currentID int, move Move, currentHash uint64) GameState {
 	newBoard := board
 	idx := move.ToIndex()
 	mask := Bitboard(uint64(1) << idx)
@@ -757,22 +750,22 @@ func SimulateStep(board Board, activeMask uint8, currentID int, move Move, curre
 	isWin, isLoss := CheckBoard(newBoard.GetPlayerBoard(currentID))
 	if isWin {
 		newHash = zobrist.SwapTurn(newHash, currentID, -1)
-		return State{board: newBoard, nextPlayerID: -1, activeMask: activeMask, winnerID: currentID, hash: newHash}
+		return GameState{Board: newBoard, PlayerID: -1, ActiveMask: activeMask, WinnerID: currentID, Hash: newHash}
 	}
 	if isLoss {
 		newMask, winnerID := rules.ResolveLoss(activeMask, currentID)
 		newHash = zobrist.UpdateMask(newHash, activeMask, newMask)
 		if winnerID != -1 {
 			newHash = zobrist.SwapTurn(newHash, currentID, -1)
-			return State{board: newBoard, nextPlayerID: -1, activeMask: newMask, winnerID: winnerID, hash: newHash}
+			return GameState{Board: newBoard, PlayerID: -1, ActiveMask: newMask, WinnerID: winnerID, Hash: newHash}
 		}
 		nextID := getNextPlayer(currentID, newMask)
 		newHash = zobrist.SwapTurn(newHash, currentID, nextID)
-		return State{board: newBoard, nextPlayerID: nextID, activeMask: newMask, winnerID: -1, hash: newHash}
+		return GameState{Board: newBoard, PlayerID: nextID, ActiveMask: newMask, WinnerID: -1, Hash: newHash}
 	}
 	nextID := getNextPlayer(currentID, activeMask)
 	newHash = zobrist.SwapTurn(newHash, currentID, nextID)
-	return State{board: newBoard, nextPlayerID: nextID, activeMask: activeMask, winnerID: -1, hash: newHash}
+	return GameState{Board: newBoard, PlayerID: nextID, ActiveMask: activeMask, WinnerID: -1, Hash: newHash}
 }
 func pdep(src, mask uint64) uint64
 
