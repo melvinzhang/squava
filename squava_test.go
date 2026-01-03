@@ -689,7 +689,7 @@ func TestFullGameTerminationFuzz(t *testing.T) {
 			} else {
 				// No win or loss, turn rotation handled below
 			}
-			if board.Occupied == Bitboard(Full) {
+			if board.Occupied == Bitboard(0xFFFFFFFFFFFFFFFF) {
 				goto GameEnd // Draw
 			}
 			// 5. Next Turn
