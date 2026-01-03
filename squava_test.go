@@ -901,20 +901,12 @@ func TestZobristHelper(t *testing.T) {
 
 func TestGameRulesHelper(t *testing.T) {
 	// Test IsTerminal
-	if winner, ok := rules.IsTerminal(0x01); !ok || winner != 0 {
+	gs := GameState{ActiveMask: 0x01, WinnerID: -1}
+	if winner, ok := gs.IsTerminal(); !ok || winner != 0 {
 		t.Errorf("IsTerminal failed for single player mask 0x01: got %v, %v", winner, ok)
 	}
-	if _, ok := rules.IsTerminal(0x03); ok {
+	gs.ActiveMask = 0x03
+	if _, ok := gs.IsTerminal(); ok {
 		t.Errorf("IsTerminal should be false for multi-player mask 0x03")
-	}
-
-	// Test ResolveLoss
-	newMask, winner := rules.ResolveLoss(0x07, 0)
-	if newMask != 0x06 || winner != -1 {
-		t.Errorf("ResolveLoss failed for 3->2 players: got %x, %v", newMask, winner)
-	}
-	newMask, winner = rules.ResolveLoss(0x03, 0)
-	if newMask != 0x02 || winner != 1 {
-		t.Errorf("ResolveLoss failed for 2->1 player (win): got %x, %v", newMask, winner)
 	}
 }

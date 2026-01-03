@@ -344,26 +344,6 @@ func (Zobrist) UpdateMask(h uint64, oldMask, newMask uint8) uint64 {
 
 var zobrist Zobrist
 
-type GameRules struct{}
-
-func (GameRules) IsTerminal(mask uint8) (int, bool) {
-	if bits.OnesCount8(mask) == 1 {
-		return bits.TrailingZeros8(mask), true
-	}
-	return -1, false
-}
-
-func (GameRules) ResolveLoss(mask uint8, currentID int) (newMask uint8, winnerID int) {
-	newMask = mask & ^(1 << uint(currentID))
-	winnerID = -1
-	if bits.OnesCount8(newMask) == 1 {
-		winnerID = bits.TrailingZeros8(newMask)
-	}
-	return newMask, winnerID
-}
-
-var rules GameRules
-
 func init() {
 	for i := 0; i < 256; i++ {
 		k := 0
@@ -421,7 +401,10 @@ func (gs GameState) IsTerminal() (int, bool) {
 	if gs.WinnerID != -1 {
 		return gs.WinnerID, true
 	}
-	return rules.IsTerminal(gs.ActiveMask)
+	if bits.OnesCount8(gs.ActiveMask) == 1 {
+		return bits.TrailingZeros8(gs.ActiveMask), true
+	}
+	return -1, false
 }
 
 func (gs GameState) GetBestMoves() Bitboard {
@@ -462,10 +445,10 @@ func (gs GameState) ApplyMove(move Move) GameState {
 		return newGS
 	}
 	if isLoss {
-		newMask, winnerID := rules.ResolveLoss(gs.ActiveMask, gs.PlayerID)
+		newMask := gs.ActiveMask & ^(1 << uint(gs.PlayerID))
 		newGS.updateActiveMask(newMask)
-		if winnerID != -1 {
-			newGS.setWinner(winnerID)
+		if bits.OnesCount8(newMask) == 1 {
+			newGS.setWinner(bits.TrailingZeros8(newMask))
 		} else {
 			newGS.updateTurn(getNextPlayer(gs.PlayerID, newMask))
 		}
