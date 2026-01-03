@@ -33,7 +33,7 @@ clean:
 	rm -f $(BINARY_NAME) squava_opt *.prof
 
 profile: build
-	./$(BINARY_NAME) -p1 mcts -p2 mcts -p3 mcts -iterations $(ITERATIONS) -cpuprofile cpu.prof
+	./$(BINARY_NAME) -p1 mcts -p2 mcts -p3 mcts -iterations $(ITERATIONS) -seed 999 -cpuprofile cpu.prof
 	go tool pprof -top cpu.prof
 
 pprof:
