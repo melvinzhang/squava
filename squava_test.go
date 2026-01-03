@@ -216,7 +216,8 @@ func TestDrawOnFullBoard(t *testing.T) {
 		board.Set(i, (i/2)%3)
 	}
 	// Simulation should terminate with a draw if no moves left
-	res, _, _ := RunSimulation(board, 0x07, 0)
+	gs := GameState{Board: board, ActiveMask: 0x07, PlayerID: 0, WinnerID: -1}
+	res, _, _ := RunSimulation(gs)
 	// Expected draw score for 3 players is 1/3 each
 	expected := float32(1.0 / 3.0)
 	for i := 0; i < 3; i++ {
@@ -246,7 +247,8 @@ func TestRunSimulationDetailed(t *testing.T) {
 	board.Set(1, 0) // B1
 	board.Set(2, 0) // C1
 	// P0 to move, D1 (3) is win
-	res, _, _ := RunSimulation(board, 0x07, 0)
+	gs1 := GameState{Board: board, ActiveMask: 0x07, PlayerID: 0, WinnerID: -1}
+	res, _, _ := RunSimulation(gs1)
 	if res[0] != 1.0 {
 		t.Errorf("Immediate win failed. Expected P0 win, got %v", res)
 	}
@@ -258,7 +260,8 @@ func TestRunSimulationDetailed(t *testing.T) {
 	// P0 to move, P1 is next. P0 must block at D1 (3)
 	// We seed xorState to ensure we don't just "get lucky"
 	xorState = 42
-	res, steps, _ := RunSimulation(board, 0x07, 0)
+	gs2 := GameState{Board: board, ActiveMask: 0x07, PlayerID: 0, WinnerID: -1}
+	res, steps, _ := RunSimulation(gs2)
 	// If P0 blocks correctly, the game should continue for more than 1 step
 	if steps <= 1 && res[1] == 1.0 {
 		t.Errorf("Forced block failed. P0 should have blocked P1's win at D1. Steps: %d, Result: %v", steps, res)
@@ -276,81 +279,26 @@ func TestRunSimulationDetailed(t *testing.T) {
 		}
 	}
 	// Only bit 16 is empty. P0 must move there.
-	res, _, _ = RunSimulation(board, 0x07, 0)
+	gs3 := GameState{Board: board, ActiveMask: 0x07, PlayerID: 0, WinnerID: -1}
+	res, _, _ = RunSimulation(gs3)
 	if res[0] == 1.0 {
 		t.Errorf("Elimination failed. P0 should have lost, but won: %v", res)
 	}
 }
 func referenceRunSimulation(board Board, activeMask uint8, currentID int) ([3]float32, Board) {
-	simBoard := board
-	simMask := activeMask
-	curr := currentID
+	gs := GameState{Board: board, ActiveMask: activeMask, PlayerID: currentID, WinnerID: -1}
 	for {
-		if simMask&(simMask-1) == 0 {
-			var res [3]float32
-			res[bits.TrailingZeros8(simMask)] = 1.0
-			return res, simBoard
+		if winnerID, ok := gs.IsTerminal(); ok {
+			return ScoreWin(winnerID), gs.Board
 		}
-		empty := ^simBoard.Occupied
-		// Simple version: recompute threats every turn for current player
-		myWins, myLoses := GetWinsAndLosses(simBoard.P[curr], empty)
-		if myWins != 0 {
-			var res [3]float32
-			res[curr] = 1.0
-			return res, simBoard
+
+		moves := gs.GetBestMoves()
+		idx := PickRandomBit(moves)
+		if idx == -1 {
+			return ScoreDraw(gs.ActiveMask), gs.Board
 		}
-		nextP := int(nextPlayerTable[curr][simMask])
-		// Recompute threats for next player
-		nextWins, _ := GetWinsAndLosses(simBoard.P[nextP], empty)
-		var moves Bitboard
-		mustCheckLoss := true
-		if nextWins != 0 {
-			moves = nextWins
-		} else {
-			moves = empty & ^myLoses
-			if moves != 0 {
-				mustCheckLoss = false
-			} else {
-				moves = empty
-			}
-		}
-		if moves == 0 {
-			var res [3]float32
-			count := bits.OnesCount8(simMask)
-			score := 1.0 / float32(count)
-			for p := 0; p < 3; p++ {
-				if (simMask & (1 << uint(p))) != 0 {
-					res[p] = score
-				}
-			}
-			return res, simBoard
-		}
-		var selectedIdx int
-		count := bits.OnesCount64(uint64(moves))
-		if count == 1 {
-			selectedIdx = bits.TrailingZeros64(uint64(moves))
-		} else {
-			hi, _ := bits.Mul64(xrand(), uint64(count))
-			// Use SelectBit64 to ensure identical bit selection
-			selectedIdx = SelectBit64(uint64(moves), int(hi))
-		}
-		mask := Bitboard(uint64(1) << selectedIdx)
-		simBoard.Occupied |= mask
-		simBoard.P[curr] |= mask
-		if mustCheckLoss {
-			_, isLoss := CheckBoard(simBoard.P[curr])
-			if isLoss {
-				simMask &= ^(1 << uint(curr))
-				if simMask&(simMask-1) == 0 {
-					var res [3]float32
-					res[bits.TrailingZeros8(simMask)] = 1.0
-					return res, simBoard
-				}
-				curr = int(nextPlayerTable[curr][simMask])
-				continue
-			}
-		}
-		curr = nextP
+
+		gs = gs.ApplyMove(MoveFromIndex(idx))
 	}
 }
 func TestRunSimulationRandomized(t *testing.T) {
@@ -370,7 +318,8 @@ func TestRunSimulationRandomized(t *testing.T) {
 		// Ensure both use exact same random sequence
 		seed := uint64(i + 1)
 		xorState = seed
-		resOpt, _, boardOpt := RunSimulation(board, 0x07, 0)
+		gs := GameState{Board: board, ActiveMask: 0x07, PlayerID: 0, WinnerID: -1}
+		resOpt, _, boardOpt := RunSimulation(gs)
 		xorState = seed
 		resRef, boardRef := referenceRunSimulation(board, 0x07, 0)
 		if resOpt != resRef {

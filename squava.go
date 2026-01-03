@@ -552,7 +552,7 @@ func (m *MCTSPlayer) Search(gs GameState) int {
 			result = ScoreWin(winnerID)
 		} else {
 			var s int
-			result, s, _ = RunSimulation(leaf.Board, leaf.ActiveMask, leaf.PlayerID)
+			result, s, _ = RunSimulation(leaf.GameState)
 			totalSteps += s
 		}
 		m.Backprop(path, result)
@@ -633,9 +633,7 @@ func (m *MCTSPlayer) GetMove(board Board, players []int, turnIdx int) Move {
 
 	if bestVisits == -1 {
 		// Fallback
-		nextID := getNextPlayer(players[turnIdx], activeMask)
-		threats := AnalyzeThreats(board, players[turnIdx], nextID)
-		moves := GetBestMoves(board, threats)
+		moves := gs.GetBestMoves()
 		if moves != 0 {
 			idx := bits.TrailingZeros64(uint64(moves))
 			return MoveFromIndex(idx)
@@ -856,77 +854,22 @@ func ScoreDraw(mask uint8) [3]float32 {
 	return res
 }
 
-func ClearThreats(wins, loses *[3]Bitboard, mask Bitboard, activeMask uint8) {
-	for p := 0; p < 3; p++ {
-		if (activeMask & (1 << uint(p))) != 0 {
-			wins[p] &= ^mask
-			loses[p] &= ^mask
-		}
-	}
-}
-
-func RunSimulation(board Board, activeMask uint8, currentID int) ([3]float32, int, Board) {
-	simBoard := board
-	simMask := activeMask
-	curr := currentID
+// --- Simulation Logic ---
+func RunSimulation(gs GameState) ([3]float32, int, Board) {
 	steps := 0
-
-	empty := ^simBoard.Occupied
-	var allWins, allLoses [3]Bitboard
-
-	// Initial threat analysis
-	for p := 0; p < 3; p++ {
-		if (simMask & (1 << uint(p))) != 0 {
-			allWins[p], allLoses[p] = GetWinsAndLosses(simBoard.P[p], empty)
-		}
-	}
-
 	for {
 		steps++
-		if winnerID, ok := rules.IsTerminal(simMask); ok {
-			return ScoreWin(winnerID), steps, simBoard
+		if winnerID, ok := gs.IsTerminal(); ok {
+			return ScoreWin(winnerID), steps, gs.Board
 		}
 
-		if allWins[curr] != 0 {
-			return ScoreWin(curr), steps, simBoard
-		}
-
-		nextP := int(nextPlayerTable[curr][simMask])
-		nextWins := allWins[nextP]
-
-		var moves Bitboard
-		mustCheckLoss := true
-		if nextWins != 0 {
-			moves = nextWins
-		} else if safe := empty & ^allLoses[curr]; safe != 0 {
-			moves = safe
-			mustCheckLoss = false
-		} else {
-			moves = empty
-		}
-
+		moves := gs.GetBestMoves()
 		idx := PickRandomBit(moves)
 		if idx == -1 {
-			return ScoreDraw(simMask), steps, simBoard
+			return ScoreDraw(gs.ActiveMask), steps, gs.Board
 		}
 
-		mask := simBoard.Move(curr, idx)
-		empty &= ^mask
-
-		if mustCheckLoss && (allLoses[curr]&mask) != 0 {
-			newMask, winnerID := rules.ResolveLoss(simMask, curr)
-			if winnerID != -1 {
-				return ScoreWin(winnerID), steps, simBoard
-			}
-			simMask = newMask
-			curr = int(nextPlayerTable[curr][simMask])
-			ClearThreats(&allWins, &allLoses, mask, simMask)
-			continue
-		}
-
-		ClearThreats(&allWins, &allLoses, mask, simMask & ^(1 << uint(curr)))
-		allWins[curr], allLoses[curr] = GetWinsAndLosses(simBoard.P[curr], empty)
-		curr = nextP
+		gs = gs.ApplyMove(MoveFromIndex(idx))
 	}
 }
 
