@@ -530,7 +530,7 @@ func TestHeuristicMoveGenerationFuzz(t *testing.T) {
 		}
 	}
 }
-func ValidateMCTSGraph(t *testing.T, root *MCGSNode) {
+func ValidateMCTSGraph(t *testing.T, root *MCGSNode, rootGS GameState) {
 	if root == nil {
 		t.Error("Root is nil")
 		return
@@ -539,8 +539,8 @@ func ValidateMCTSGraph(t *testing.T, root *MCGSNode) {
 	visited := make(map[*MCGSNode]bool)
 	// Track recursion stack for cycle detection
 	stack := make(map[*MCGSNode]bool)
-	var checkNode func(node *MCGSNode)
-	checkNode = func(node *MCGSNode) {
+	var checkNode func(node *MCGSNode, gs GameState)
+	checkNode = func(node *MCGSNode, gs GameState) {
 		// 1. Cycle Detection
 		if stack[node] {
 			t.Errorf("Cycle detected in MCTS graph at node hash %016x", node.Hash)
@@ -566,10 +566,11 @@ func ValidateMCTSGraph(t *testing.T, root *MCGSNode) {
 		}
 		// 4. Edge Invariants
 		sumEdgeVisits := 0
-		for i := range node.EdgeDests {
-			edgeVisits := int(node.EdgeVisits[i])
-			edgeDest := node.EdgeDests[i]
-			edgeMove := node.EdgeMoves[i]
+		for i := range node.Edges {
+			edge := &node.Edges[i]
+			edgeVisits := int(edge.N)
+			edgeDest := edge.Dest
+			edgeMove := edge.Move
 			sumEdgeVisits += edgeVisits
 			if edgeDest == nil {
 				t.Errorf("Node %016x has edge with nil destination", node.Hash)
@@ -584,13 +585,13 @@ func ValidateMCTSGraph(t *testing.T, root *MCGSNode) {
 			}
 			// 5. State Consistency Check
 			// Re-simulate the move to ensure the hash matches the destination node
-			expectedState := node.ApplyMove(edgeMove)
+			expectedState := gs.ApplyMove(edgeMove)
 			if expectedState.Hash != edgeDest.Hash {
 				t.Errorf("Hash consistency violation on edge %v: Expected %016x, got %016x",
 					edgeMove, expectedState.Hash, edgeDest.Hash)
 			}
 			// Recurse
-			checkNode(edgeDest)
+			checkNode(edgeDest, expectedState)
 		}
 		// 6. Conservation of Flow (Outgoing)
 		// The number of times we left this node cannot exceed the number of times we visited it.
@@ -600,7 +601,7 @@ func ValidateMCTSGraph(t *testing.T, root *MCGSNode) {
 				node.Hash, sumEdgeVisits, node.N)
 		}
 	}
-	checkNode(root)
+	checkNode(root, rootGS)
 }
 func TestMCTSInvariants(t *testing.T) {
 	// Use fewer iterations for MCTS fuzzing to keep test time reasonable per run,
@@ -625,13 +626,15 @@ func TestMCTSInvariants(t *testing.T) {
 		// Run a short game/simulation to build a graph
 		player := NewMCTSPlayer("Tester", "T", 0, mctsIters)
 		// We don't care about the resulting move, just the graph structure
-		_ = player.GetMove(board, []int{0, 1, 2}, 0)
+		activeIDs := []int{0, 1, 2}
+		_ = player.GetMove(board, activeIDs, 0)
 		if player.root == nil {
 			t.Errorf("Iteration %d: MCTS did not generate a root node", i)
 			continue
 		}
 		// Validate the resulting graph
-		ValidateMCTSGraph(t, player.root)
+		rootGS := GameState{Board: board, PlayerID: 0, ActiveMask: 0x07, Hash: ZobristHash(board, 0, 0x07), WinnerID: -1}
+		ValidateMCTSGraph(t, player.root, rootGS)
 	}
 }
 func TestFullGameTerminationFuzz(t *testing.T) {
@@ -803,30 +806,30 @@ func TestMCGSNodeMethods(t *testing.T) {
 	if idx != 0 {
 		t.Errorf("Expected edge index 0, got %d", idx)
 	}
-	if node.EdgeMoves[idx] != move {
+	if node.Edges[idx].Move != move {
 		t.Errorf("Edge move mismatch")
 	}
-	if node.EdgeDests[idx] != child {
+	if node.Edges[idx].Dest != child {
 		t.Errorf("Edge destination mismatch")
 	}
-	if node.EdgeVisits[idx] != 0 {
-		t.Errorf("Expected 0 visits, got %d", node.EdgeVisits[idx])
+	if node.Edges[idx].N != 0 {
+		t.Errorf("Expected 0 visits, got %d", node.Edges[idx].N)
 	}
 	for i := 0; i < 3; i++ {
-		if node.EdgeQs[i][idx] != child.Q[i] {
-			t.Errorf("Edge Q%d mismatch: expected %f, got %f", i, child.Q[i], node.EdgeQs[i][idx])
+		if node.Edges[idx].Q[i] != child.Q[i] {
+			t.Errorf("Edge Q%d mismatch: expected %f, got %f", i, child.Q[i], node.Edges[idx].Q[i])
 		}
 	}
 
 	// Test SyncEdge
 	child.Q = [3]float32{0.4, 0.5, 0.6}
 	node.SyncEdge(idx, child)
-	if node.EdgeVisits[idx] != 1 {
-		t.Errorf("Expected 1 visit, got %d", node.EdgeVisits[idx])
+	if node.Edges[idx].N != 1 {
+		t.Errorf("Expected 1 visit, got %d", node.Edges[idx].N)
 	}
 	for i := 0; i < 3; i++ {
-		if node.EdgeQs[i][idx] != child.Q[i] {
-			t.Errorf("Edge Q%d mismatch after sync: expected %f, got %f", i, child.Q[i], node.EdgeQs[i][idx])
+		if node.Edges[idx].Q[i] != child.Q[i] {
+			t.Errorf("Edge Q%d mismatch after sync: expected %f, got %f", i, child.Q[i], node.Edges[idx].Q[i])
 		}
 	}
 

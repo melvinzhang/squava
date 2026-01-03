@@ -541,15 +541,15 @@ func (m *MCTSPlayer) Search(gs GameState) (int, int) {
 	initialN := root.N
 	totalSteps := 0
 	for root.N < m.iterations {
-		path := m.Select(root)
+		path, leafGS := m.Select(root, gs)
 		leaf := path[len(path)-1].Node
 
 		var result [3]float32
 		if winnerID, ok := leaf.IsTerminal(); ok {
-			result = ScoreTerminal(leaf.ActiveMask, winnerID)
+			result = ScoreTerminal(leafGS.ActiveMask, winnerID)
 		} else {
 			var s int
-			result, s, _ = RunSimulation(leaf.GameState)
+			result, s, _ = RunSimulation(leafGS)
 			totalSteps += s
 		}
 		m.Backprop(path, result)
@@ -576,10 +576,11 @@ func (m *MCTSPlayer) PrintStats(myID int, totalSteps, rollouts int, elapsed time
 
 	stats := []MoveStat{}
 	bestVisits := -1
-	for i := range root.EdgeDests {
-		mv := root.EdgeMoves[i]
-		visits := int(root.EdgeVisits[i])
-		q := root.EdgeDests[i].Q[myID]
+	for i := range root.Edges {
+		edge := &root.Edges[i]
+		mv := edge.Move
+		visits := int(edge.N)
+		q := edge.Q[myID]
 		stats = append(stats, MoveStat{mv, visits, q})
 		if visits > bestVisits {
 			bestVisits = visits
@@ -620,11 +621,12 @@ func (m *MCTSPlayer) GetMove(board Board, players []int, turnIdx int) Move {
 
 	bestVisits := -1
 	var bestMove Move
-	for i := range m.root.EdgeDests {
-		visits := int(m.root.EdgeVisits[i])
+	for i := range m.root.Edges {
+		edge := &m.root.Edges[i]
+		visits := int(edge.N)
 		if visits > bestVisits {
 			bestVisits = visits
-			bestMove = m.root.EdgeMoves[i]
+			bestMove = edge.Move
 		}
 	}
 
@@ -646,47 +648,40 @@ type PathStep struct {
 
 var negInf = math.Inf(-1)
 
-func (m *MCTSPlayer) Select(root *MCGSNode) []PathStep {
+func (m *MCTSPlayer) Select(root *MCGSNode, startGS GameState) ([]PathStep, GameState) {
 	m.path = m.path[:0]
 	m.path = append(m.path, PathStep{Node: root, EdgeIdx: -1})
 
+	gs := startGS
 	curr := root
 	for {
 		if _, terminal := curr.IsTerminal(); terminal {
 			break
 		}
 		// --- Expansion Phase ---
-		// If the current node has moves that haven't been added to the graph yet,
-		// pick one at random and expand the search.
 		if move, ok := curr.PopUntriedMove(); ok {
-			// Determine the new state and look it up in the Transposition Table.
-			state := curr.ApplyMove(move)
+			gs = gs.ApplyMove(move)
 
-			child := tt.Lookup(state)
+			child := tt.Lookup(gs)
 			isNew := child == nil
 
 			if isNew {
-				child = NewMCGSNode(state)
-				tt.Store(state.Hash, child)
+				child = NewMCGSNode(gs)
+				tt.Store(gs.Hash, child)
 			}
 
-			// Add the edge to the graph and record it in the selection path.
 			edgeIdx := curr.AddEdge(move, child)
 			m.path = append(m.path, PathStep{Node: child, EdgeIdx: edgeIdx})
-			// If we've added a genuinely new node to the TT, we stop and proceed to rollout.
-			// Otherwise, we continue selection from this existing node.
 			if isNew {
-				return m.path
+				return m.path, gs
 			}
 			curr = child
 			continue
 		}
 
 		// --- Selection Phase ---
-		// If all moves from the current node have been explored, use the UCB1
-		// formula to select the most promising child for further exploration.
-		if len(curr.EdgeDests) == 0 {
-			break // Terminal node reached.
+		if len(curr.Edges) == 0 {
+			break
 		}
 
 		bestIdx := -1
@@ -694,17 +689,16 @@ func (m *MCTSPlayer) Select(root *MCGSNode) []PathStep {
 		coeff := curr.UCB1Coeff
 		pID := curr.PlayerID
 
-		visits := curr.EdgeVisits
-		qs := curr.EdgeQs[pID]
-		for i := range visits {
-			vPlus1 := int(visits[i]) + 1
+		for i := range curr.Edges {
+			edge := &curr.Edges[i]
+			vPlus1 := int(edge.N) + 1
 			var u float32
 			if vPlus1 < len(invSqrtTable) {
 				u = coeff * invSqrtTable[vPlus1]
 			} else {
 				u = coeff / float32(math.Sqrt(float64(vPlus1)))
 			}
-			score := qs[i] + u
+			score := edge.Q[pID] + u
 			if score > bestScore {
 				bestScore = score
 				bestIdx = i
@@ -715,11 +709,13 @@ func (m *MCTSPlayer) Select(root *MCGSNode) []PathStep {
 			break
 		}
 
-		m.path = append(m.path, PathStep{Node: curr.EdgeDests[bestIdx], EdgeIdx: bestIdx})
-		curr = curr.EdgeDests[bestIdx]
+		edge := &curr.Edges[bestIdx]
+		gs = gs.ApplyMove(edge.Move)
+		m.path = append(m.path, PathStep{Node: edge.Dest, EdgeIdx: bestIdx})
+		curr = edge.Dest
 
 	}
-	return m.path
+	return m.path, gs
 }
 func (m *MCTSPlayer) Backprop(path []PathStep, result [3]float32) {
 	for i := len(path) - 1; i >= 0; i-- {
@@ -734,26 +730,33 @@ func (m *MCTSPlayer) Backprop(path []PathStep, result [3]float32) {
 	}
 }
 
+type MCGSEdge struct {
+	Move Move
+	Dest *MCGSNode
+	N    int32
+	Q    [3]float32
+}
+
 type MCGSNode struct {
-	GameState
+	Hash         uint64
+	PlayerID     int
+	ActiveMask   uint8
+	WinnerID     int
+	Terminal     bool
 	N            int
 	Q            [3]float32
-	EdgeMoves    []Move
-	EdgeDests    []*MCGSNode
-	EdgeVisits   []int32
-	EdgeQs       [3][]float32
+	Edges        []MCGSEdge
 	untriedMoves Bitboard
 	UCB1Coeff    float32
 }
 
 func (n *MCGSNode) AddEdge(move Move, dest *MCGSNode) int {
-	idx := len(n.EdgeDests)
-	n.EdgeMoves = append(n.EdgeMoves, move)
-	n.EdgeDests = append(n.EdgeDests, dest)
-	n.EdgeVisits = append(n.EdgeVisits, 0)
-	n.EdgeQs[0] = append(n.EdgeQs[0], dest.Q[0])
-	n.EdgeQs[1] = append(n.EdgeQs[1], dest.Q[1])
-	n.EdgeQs[2] = append(n.EdgeQs[2], dest.Q[2])
+	idx := len(n.Edges)
+	n.Edges = append(n.Edges, MCGSEdge{
+		Move: move,
+		Dest: dest,
+		Q:    dest.Q,
+	})
 	return idx
 }
 
@@ -774,10 +777,9 @@ func (n *MCGSNode) UpdateStats(result [3]float32) {
 }
 
 func (n *MCGSNode) SyncEdge(idx int, child *MCGSNode) {
-	n.EdgeVisits[idx]++
-	n.EdgeQs[0][idx] = child.Q[0]
-	n.EdgeQs[1][idx] = child.Q[1]
-	n.EdgeQs[2][idx] = child.Q[2]
+	edge := &n.Edges[idx]
+	edge.N++
+	edge.Q = child.Q
 }
 
 func (n *MCGSNode) PopUntriedMove() (Move, bool) {
@@ -789,25 +791,29 @@ func (n *MCGSNode) PopUntriedMove() (Move, bool) {
 	return MoveFromIndex(moveIdx), true
 }
 
-type MCGSEdge struct {
-	Move   Move
-	Dest   *MCGSNode
-	Visits int
-}
-
 func NewMCGSNode(gs GameState) *MCGSNode {
+	winnerID, terminal := gs.IsTerminal()
 	var untried Bitboard
-	if _, terminal := gs.IsTerminal(); !terminal {
+	if !terminal {
 		untried = gs.GetBestMoves()
 	}
 	n := &MCGSNode{
-		GameState:    gs,
+		Hash:         gs.Hash,
+		PlayerID:     gs.PlayerID,
+		ActiveMask:   gs.ActiveMask,
+		WinnerID:     winnerID,
+		Terminal:     terminal,
 		untriedMoves: untried,
 	}
 	return n
 }
+
 func (n *MCGSNode) Matches(gs GameState) bool {
-	return n.GameState == gs
+	return n.Hash == gs.Hash && n.PlayerID == gs.PlayerID && n.ActiveMask == gs.ActiveMask
+}
+
+func (n *MCGSNode) IsTerminal() (int, bool) {
+	return n.WinnerID, n.Terminal
 }
 
 func pdep(src, mask uint64) uint64
