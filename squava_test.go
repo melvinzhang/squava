@@ -149,15 +149,15 @@ func TestSimulationLogic(t *testing.T) {
 	h := ZobristHash(board, 0, 0x07)
 	// P0 moves to 2, creating 3-in-a-row
 	gs := GameState{Board: board, Hash: h, PlayerID: 0, ActiveMask: 0x07, WinnerID: -1}
-	state := gs.ApplyMove(MoveFromIndex(2))
-	if state.WinnerID != -1 {
-		t.Errorf("Expected no winner yet, got %d", state.WinnerID)
+	gs.ApplyMove(MoveFromIndex(2))
+	if gs.WinnerID != -1 {
+		t.Errorf("Expected no winner yet, got %d", gs.WinnerID)
 	}
-	if (state.ActiveMask & (1 << 0)) != 0 {
+	if (gs.ActiveMask & (1 << 0)) != 0 {
 		t.Errorf("Player 0 should have been eliminated from activeMask")
 	}
-	if state.PlayerID != 1 {
-		t.Errorf("Expected next player to be 1, got %d", state.PlayerID)
+	if gs.PlayerID != 1 {
+		t.Errorf("Expected next player to be 1, got %d", gs.PlayerID)
 	}
 	// Test last man standing: P0 eliminated, P1 eliminated, P2 should win.
 	board = Board{}
@@ -168,11 +168,11 @@ func TestSimulationLogic(t *testing.T) {
 	h = ZobristHash(board, 0, 0x07)
 	// P0 moves to 2 -> eliminated. Mask becomes 0x06 (P1, P2)
 	gs1 := GameState{Board: board, Hash: h, PlayerID: 0, ActiveMask: 0x07, WinnerID: -1}
-	state1 := gs1.ApplyMove(MoveFromIndex(2))
+	gs1.ApplyMove(MoveFromIndex(2))
 	// P1 moves to 10 -> eliminated. Mask becomes 0x04 (P2)
-	state2 := state1.ApplyMove(MoveFromIndex(10))
-	if state2.WinnerID != 2 {
-		t.Errorf("Expected Player 2 to win as last man standing, got %d", state2.WinnerID)
+	gs1.ApplyMove(MoveFromIndex(10))
+	if gs1.WinnerID != 2 {
+		t.Errorf("Expected Player 2 to win as last man standing, got %d", gs1.WinnerID)
 	}
 }
 func TestZobristConsistency(t *testing.T) {
@@ -217,7 +217,7 @@ func TestDrawOnFullBoard(t *testing.T) {
 	}
 	// Simulation should terminate with a draw if no moves left
 	gs := GameState{Board: board, ActiveMask: 0x07, PlayerID: 0, WinnerID: -1}
-	res, _, _ := RunSimulation(gs)
+	res, _, _ := RunSimulation(&gs)
 	// Expected draw score for 3 players is 1/3 each
 	expected := float32(1.0 / 3.0)
 	for i := 0; i < 3; i++ {
@@ -248,7 +248,7 @@ func TestRunSimulationDetailed(t *testing.T) {
 	board.Set(2, 0) // C1
 	// P0 to move, D1 (3) is win
 	gs1 := GameState{Board: board, ActiveMask: 0x07, PlayerID: 0, WinnerID: -1}
-	res, _, _ := RunSimulation(gs1)
+	res, _, _ := RunSimulation(&gs1)
 	if res[0] != 1.0 {
 		t.Errorf("Immediate win failed. Expected P0 win, got %v", res)
 	}
@@ -261,7 +261,7 @@ func TestRunSimulationDetailed(t *testing.T) {
 	// We seed xorState to ensure we don't just "get lucky"
 	xorState = 42
 	gs2 := GameState{Board: board, ActiveMask: 0x07, PlayerID: 0, WinnerID: -1}
-	res, steps, _ := RunSimulation(gs2)
+	res, steps, _ := RunSimulation(&gs2)
 	// If P0 blocks correctly, the game should continue for more than 1 step
 	if steps <= 1 && res[1] == 1.0 {
 		t.Errorf("Forced block failed. P0 should have blocked P1's win at D1. Steps: %d, Result: %v", steps, res)
@@ -280,7 +280,7 @@ func TestRunSimulationDetailed(t *testing.T) {
 	}
 	// Only bit 16 is empty. P0 must move there.
 	gs3 := GameState{Board: board, ActiveMask: 0x07, PlayerID: 0, WinnerID: -1}
-	res, _, _ = RunSimulation(gs3)
+	res, _, _ = RunSimulation(&gs3)
 	if res[0] == 1.0 {
 		t.Errorf("Elimination failed. P0 should have lost, but won: %v", res)
 	}
@@ -298,7 +298,7 @@ func referenceRunSimulation(board Board, activeMask uint8, currentID int) ([3]fl
 			return ScoreDraw(gs.ActiveMask), gs.Board
 		}
 
-		gs = gs.ApplyMove(MoveFromIndex(idx))
+		gs.ApplyMove(MoveFromIndex(idx))
 	}
 }
 func TestRunSimulationRandomized(t *testing.T) {
@@ -319,7 +319,7 @@ func TestRunSimulationRandomized(t *testing.T) {
 		seed := uint64(i + 1)
 		xorState = seed
 		gs := GameState{Board: board, ActiveMask: 0x07, PlayerID: 0, WinnerID: -1}
-		resOpt, _, boardOpt := RunSimulation(gs)
+		resOpt, _, boardOpt := RunSimulation(&gs)
 		xorState = seed
 		resRef, boardRef := referenceRunSimulation(board, 0x07, 0)
 		if resOpt != resRef {
@@ -369,12 +369,12 @@ func TestZobristIncrementalFuzz(t *testing.T) {
 		initialHash := ZobristHash(board, currentID, activeMask)
 		gs := GameState{Board: board, Hash: initialHash, PlayerID: currentID, ActiveMask: activeMask, WinnerID: -1}
 		// 5. Execute Step (Incremental Update)
-		newState := gs.ApplyMove(move)
+		gs.ApplyMove(move)
 		// 6. Verification: Compute Hash from Scratch on New State
-		refHash := ZobristHash(newState.Board, newState.PlayerID, newState.ActiveMask)
-		if newState.Hash != refHash {
+		refHash := ZobristHash(gs.Board, gs.PlayerID, gs.ActiveMask)
+		if gs.Hash != refHash {
 			t.Errorf("Iteration %d: Hash mismatch.\nState: %+v\nIncremental: %016x\nReference:   %016x",
-				i, newState, newState.Hash, refHash)
+				i, gs, gs.Hash, refHash)
 			return // Stop on first error to avoid spam
 		}
 	}
@@ -585,7 +585,8 @@ func ValidateMCTSGraph(t *testing.T, root *MCGSNode, rootGS GameState) {
 			}
 			// 5. State Consistency Check
 			// Re-simulate the move to ensure the hash matches the destination node
-			expectedState := gs.ApplyMove(edgeMove)
+			expectedState := gs
+			expectedState.ApplyMove(edgeMove)
 			if expectedState.Hash != edgeDest.Hash {
 				t.Errorf("Hash consistency violation on edge %v: Expected %016x, got %016x",
 					edgeMove, expectedState.Hash, edgeDest.Hash)
@@ -861,7 +862,7 @@ func TestTranspositionTableMethods(t *testing.T) {
 	node := NewMCGSNode(gs)
 
 	table.Store(gs.Hash, node)
-	lookedUp := table.Lookup(gs)
+	lookedUp := table.Lookup(&gs)
 	if lookedUp != node {
 		t.Errorf("TranspositionTable lookup failed")
 	}
@@ -869,12 +870,12 @@ func TestTranspositionTableMethods(t *testing.T) {
 	// Test mismatch
 	gsWrongHash := gs
 	gsWrongHash.Hash = 1235
-	if table.Lookup(gsWrongHash) != nil {
+	if table.Lookup(&gsWrongHash) != nil {
 		t.Errorf("Lookup should fail for different hash")
 	}
 	gsWrongPlayer := gs
 	gsWrongPlayer.PlayerID = 1
-	if table.Lookup(gsWrongPlayer) != nil {
+	if table.Lookup(&gsWrongPlayer) != nil {
 		t.Errorf("Lookup should fail for different playerID")
 	}
 }

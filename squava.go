@@ -393,11 +393,11 @@ type GameState struct {
 	WinnerID   int
 }
 
-func (gs GameState) NextPlayer() int {
+func (gs *GameState) NextPlayer() int {
 	return int(nextPlayerTable[gs.PlayerID][gs.ActiveMask])
 }
 
-func (gs GameState) IsTerminal() (int, bool) {
+func (gs *GameState) IsTerminal() (int, bool) {
 	if gs.WinnerID != -1 {
 		return gs.WinnerID, true
 	}
@@ -410,7 +410,7 @@ func (gs GameState) IsTerminal() (int, bool) {
 	return -1, false
 }
 
-func (gs GameState) ActiveIDs() []int {
+func (gs *GameState) ActiveIDs() []int {
 	ids := make([]int, 0, 3)
 	for i := 0; i < 3; i++ {
 		if (gs.ActiveMask & (1 << uint(i))) != 0 {
@@ -420,7 +420,7 @@ func (gs GameState) ActiveIDs() []int {
 	return ids
 }
 
-func (gs GameState) GetBestMoves() Bitboard {
+func (gs *GameState) GetBestMoves() Bitboard {
 	nextP := gs.NextPlayer()
 	threats := AnalyzeThreats(gs.Board, gs.PlayerID, nextP)
 	return GetBestMoves(gs.Board, threats)
@@ -447,28 +447,27 @@ func (gs *GameState) setWinner(winnerID int) {
 	gs.PlayerID = -1
 }
 
-func (gs GameState) ApplyMove(move Move) GameState {
-	newGS := gs
+func (gs *GameState) ApplyMove(move Move) {
 	idx := move.ToIndex()
-	newGS.applyPiece(idx)
+	pID := gs.PlayerID
+	gs.applyPiece(idx)
 
-	isWin, isLoss := CheckBoard(newGS.Board.GetPlayerBoard(gs.PlayerID))
+	isWin, isLoss := CheckBoard(gs.Board.GetPlayerBoard(pID))
 	if isWin {
-		newGS.setWinner(gs.PlayerID)
-		return newGS
+		gs.setWinner(pID)
+		return
 	}
 	if isLoss {
-		newMask := gs.ActiveMask & ^(1 << uint(gs.PlayerID))
-		newGS.updateActiveMask(newMask)
+		newMask := gs.ActiveMask & ^(1 << uint(pID))
+		gs.updateActiveMask(newMask)
 		if bits.OnesCount8(newMask) == 1 {
-			newGS.setWinner(bits.TrailingZeros8(newMask))
+			gs.setWinner(bits.TrailingZeros8(newMask))
 		} else {
-			newGS.updateTurn(getNextPlayer(gs.PlayerID, newMask))
+			gs.updateTurn(getNextPlayer(pID, newMask))
 		}
-		return newGS
+		return
 	}
-	newGS.updateTurn(gs.NextPlayer())
-	return newGS
+	gs.updateTurn(gs.NextPlayer())
 }
 
 type TTEntry struct {
@@ -478,7 +477,7 @@ type TTEntry struct {
 
 type TranspositionTable []TTEntry
 
-func (tt TranspositionTable) Lookup(gs GameState) *MCGSNode {
+func (tt TranspositionTable) Lookup(gs *GameState) *MCGSNode {
 	idx := gs.Hash & TTMask
 	entry := tt[idx]
 	if entry.hash == gs.Hash && entry.node != nil {
@@ -531,7 +530,7 @@ func ZobristHash(board Board, playerToMoveID int, activeMask uint8) uint64 {
 }
 
 func (m *MCTSPlayer) Search(gs GameState) (int, int) {
-	root := tt.Lookup(gs)
+	root := tt.Lookup(&gs)
 	if root == nil {
 		root = NewMCGSNode(gs)
 		tt.Store(gs.Hash, root)
@@ -541,15 +540,17 @@ func (m *MCTSPlayer) Search(gs GameState) (int, int) {
 	initialN := root.N
 	totalSteps := 0
 	for root.N < m.iterations {
-		path, leafGS := m.Select(root, gs)
+		tmpGS := gs
+		path := m.Select(root, &tmpGS)
 		leaf := path[len(path)-1].Node
 
 		var result [3]float32
-		if winnerID, ok := leaf.IsTerminal(); ok {
-			result = ScoreTerminal(leafGS.ActiveMask, winnerID)
+		winnerID, terminal := leaf.IsTerminal()
+		if terminal {
+			result = ScoreTerminal(tmpGS.ActiveMask, winnerID)
 		} else {
 			var s int
-			result, s, _ = RunSimulation(leafGS)
+			result, s, _ = RunSimulation(&tmpGS)
 			totalSteps += s
 		}
 		m.Backprop(path, result)
@@ -648,11 +649,10 @@ type PathStep struct {
 
 var negInf = math.Inf(-1)
 
-func (m *MCTSPlayer) Select(root *MCGSNode, startGS GameState) ([]PathStep, GameState) {
+func (m *MCTSPlayer) Select(root *MCGSNode, gs *GameState) []PathStep {
 	m.path = m.path[:0]
 	m.path = append(m.path, PathStep{Node: root, EdgeIdx: -1})
 
-	gs := startGS
 	curr := root
 	for {
 		if _, terminal := curr.IsTerminal(); terminal {
@@ -660,20 +660,20 @@ func (m *MCTSPlayer) Select(root *MCGSNode, startGS GameState) ([]PathStep, Game
 		}
 		// --- Expansion Phase ---
 		if move, ok := curr.PopUntriedMove(); ok {
-			gs = gs.ApplyMove(move)
+			gs.ApplyMove(move)
 
 			child := tt.Lookup(gs)
 			isNew := child == nil
 
 			if isNew {
-				child = NewMCGSNode(gs)
+				child = NewMCGSNode(*gs)
 				tt.Store(gs.Hash, child)
 			}
 
 			edgeIdx := curr.AddEdge(move, child)
 			m.path = append(m.path, PathStep{Node: child, EdgeIdx: edgeIdx})
 			if isNew {
-				return m.path, gs
+				return m.path
 			}
 			curr = child
 			continue
@@ -710,12 +710,12 @@ func (m *MCTSPlayer) Select(root *MCGSNode, startGS GameState) ([]PathStep, Game
 		}
 
 		edge := &curr.Edges[bestIdx]
-		gs = gs.ApplyMove(edge.Move)
+		gs.ApplyMove(edge.Move)
 		m.path = append(m.path, PathStep{Node: edge.Dest, EdgeIdx: bestIdx})
 		curr = edge.Dest
 
 	}
-	return m.path, gs
+	return m.path
 }
 func (m *MCTSPlayer) Backprop(path []PathStep, result [3]float32) {
 	for i := len(path) - 1; i >= 0; i-- {
@@ -808,7 +808,7 @@ func NewMCGSNode(gs GameState) *MCGSNode {
 	return n
 }
 
-func (n *MCGSNode) Matches(gs GameState) bool {
+func (n *MCGSNode) Matches(gs *GameState) bool {
 	return n.Hash == gs.Hash && n.PlayerID == gs.PlayerID && n.ActiveMask == gs.ActiveMask
 }
 
@@ -865,11 +865,12 @@ func ScoreTerminal(activeMask uint8, winnerID int) [3]float32 {
 }
 
 // --- Simulation Logic ---
-func RunSimulation(gs GameState) ([3]float32, int, Board) {
+func RunSimulation(gs *GameState) ([3]float32, int, Board) {
 	steps := 0
 	for {
 		steps++
-		if winnerID, ok := gs.IsTerminal(); ok {
+		winnerID, ok := gs.IsTerminal()
+		if ok {
 			return ScoreTerminal(gs.ActiveMask, winnerID), steps, gs.Board
 		}
 
@@ -879,7 +880,7 @@ func RunSimulation(gs GameState) ([3]float32, int, Board) {
 			return ScoreDraw(gs.ActiveMask), steps, gs.Board
 		}
 
-		gs = gs.ApplyMove(MoveFromIndex(idx))
+		gs.ApplyMove(MoveFromIndex(idx))
 	}
 }
 
@@ -949,8 +950,8 @@ func (g *SquavaGame) Run() {
 
 	moveCount := 1
 	for {
-		winnerID, terminal := g.gs.IsTerminal()
-		if terminal {
+		winnerID, ok := g.gs.IsTerminal()
+		if ok {
 			g.PrintBoard()
 			if winnerID != -1 {
 				fmt.Printf("!!! %s wins! !!!\n", g.GetPlayer(winnerID).Name())
@@ -984,7 +985,7 @@ func (g *SquavaGame) Run() {
 		}
 
 		prevMask := g.gs.ActiveMask
-		g.gs = g.gs.ApplyMove(move)
+		g.gs.ApplyMove(move)
 		moveCount++
 
 		if g.gs.ActiveMask != prevMask {
