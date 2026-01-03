@@ -285,7 +285,6 @@ var (
 	invSqrtTable    [100000]float32
 	coeffTable      [100000]float32
 	tt              TranspositionTable
-	select8         [256][8]uint8
 	nextPlayerTable [3][256]int8
 )
 
@@ -322,16 +321,6 @@ func (z *ZobristTable) ComputeHash(board Board, playerToMoveID int, activeMask u
 }
 
 func init() {
-	for i := 0; i < 256; i++ {
-		k := 0
-		for j := 0; j < 8; j++ {
-			if (i & (1 << uint(j))) != 0 {
-				select8[i][k] = uint8(j)
-				k++
-			}
-		}
-	}
-
 	zobrist = NewZobristTable()
 	for p := 0; p < 3; p++ {
 		for m := 0; m < 256; m++ {
