@@ -958,3 +958,92 @@ func TestSelectBit64(t *testing.T) {
 		t.Errorf("SelectBit64(0b101010, 2) = %d, want 5", got)
 	}
 }
+
+func TestIncrementalThreatsFuzz(t *testing.T) {
+	for i := 0; i < *fuzzIterations; i++ {
+		// 1. Generate Random Board
+		board := generateRandomBoard(25)
+
+		// Ensure board is clean (no existing wins/losses)
+		clean := true
+		for p := 0; p < 3; p++ {
+			isW, isL := CheckBoard(board.P[p])
+			if isW || isL {
+				clean = false
+				break
+			}
+		}
+		if !clean {
+			continue
+		}
+
+		// 2. Setup Context
+		// Active mask must have at least 2 players
+		var activeMask uint8
+		for {
+			activeMask = uint8(xrand() % 8)
+			if bits.OnesCount8(activeMask) >= 2 {
+				break
+			}
+		}
+		// Current player must be in active mask
+		var currentID int
+		for {
+			currentID = int(xrand() % 3)
+			if (activeMask & (1 << uint(currentID))) != 0 {
+				break
+			}
+		}
+
+		// 3. Select a Random Valid Move
+		empty := ^board.Occupied
+		if empty == 0 {
+			continue
+		}
+		count := bits.OnesCount64(uint64(empty))
+		n := int(xrand() % uint64(count))
+		idx := SelectBit64(uint64(empty), n)
+		move := MoveFromIndex(idx)
+
+		// 4. Create Initial State
+		gs := NewGameState(board, currentID, activeMask)
+
+		// 5. Apply Move (Trigger Incremental Update)
+		mover := gs.PlayerID
+		gs.ApplyMove(move)
+
+		// 6. Create Reference State (Full Recompute via InitThreats)
+		// We use the state properties from gs (Board, PlayerID, ActiveMask)
+		// to create a new state, which will force a fresh calculation of threats.
+		refGS := NewGameState(gs.Board, gs.PlayerID, gs.ActiveMask)
+
+		// 7. Verify Equivalence
+		// If the game ended with a win, ApplyMove returns early and doesn't update threats.
+		// In that case, gs.Wins still contains the winning move, while refGS (on new board) won't.
+		// We should skip threat verification if gs.WinnerID != -1
+		if gs.WinnerID != -1 {
+			continue
+		}
+
+		if gs.ActiveMask != refGS.ActiveMask {
+			t.Errorf("Iteration %d: ActiveMask mismatch. Inc: %02x, Ref: %02x", i, gs.ActiveMask, refGS.ActiveMask)
+		}
+		if gs.Terminal != refGS.Terminal {
+			t.Errorf("Iteration %d: Terminal mismatch. Inc: %v, Ref: %v", i, gs.Terminal, refGS.Terminal)
+		}
+		if gs.PlayerID != refGS.PlayerID {
+			t.Errorf("Iteration %d: PlayerID mismatch. Inc: %d, Ref: %d", i, gs.PlayerID, refGS.PlayerID)
+		}
+
+		for p := 0; p < 3; p++ {
+			if gs.Wins[p] != refGS.Wins[p] {
+				t.Errorf("Iteration %d: Wins mismatch for P%d (Mover: P%d, Move: %d).\nIncremental: %016x\nReference:   %016x\nBoard Occ: %016x\nGS term: %v, Ref term: %v",
+					i, p, mover, move.ToIndex(), gs.Wins[p], refGS.Wins[p], gs.Board.Occupied, gs.Terminal, refGS.Terminal)
+			}
+			if gs.Loses[p] != refGS.Loses[p] {
+				t.Errorf("Iteration %d: Loses mismatch for P%d (Mover: P%d, Move: %d).\nIncremental: %016x\nReference:   %016x",
+					i, p, mover, move.ToIndex(), gs.Loses[p], refGS.Loses[p])
+			}
+		}
+	}
+}
