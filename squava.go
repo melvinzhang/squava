@@ -712,17 +712,7 @@ func (m *MCTSPlayer) Select(root *MCGSNode, gs *GameState) []PathStep {
 		}
 		// --- Expansion Phase ---
 		if move, ok := curr.PopUntriedMove(); ok {
-			gs.ApplyMove(move)
-
-			child := tt.Lookup(gs)
-			isNew := child == nil
-
-			if isNew {
-				child = NewMCGSNode(*gs)
-				tt.Store(gs.Hash, child)
-			}
-
-			edgeIdx := curr.AddEdge(move, child)
+			child, isNew, edgeIdx := m.expand(curr, gs, move)
 			m.path = append(m.path, PathStep{Node: child, EdgeIdx: edgeIdx})
 			if isNew {
 				return m.path
@@ -732,31 +722,7 @@ func (m *MCTSPlayer) Select(root *MCGSNode, gs *GameState) []PathStep {
 		}
 
 		// --- Selection Phase ---
-		if len(curr.Edges) == 0 {
-			break
-		}
-
-		bestIdx := -1
-		bestScore := float32(negInf)
-		coeff := curr.UCB1Coeff
-		pID := curr.PlayerID
-
-		for i := range curr.Edges {
-			edge := &curr.Edges[i]
-			vPlus1 := int(edge.N) + 1
-			var u float32
-			if vPlus1 < len(invSqrtTable) {
-				u = coeff * invSqrtTable[vPlus1]
-			} else {
-				u = coeff / float32(math.Sqrt(float64(vPlus1)))
-			}
-			score := edge.Q[pID] + u
-			if score > bestScore {
-				bestScore = score
-				bestIdx = i
-			}
-		}
-
+		bestIdx := curr.selectBestEdge()
 		if bestIdx == -1 {
 			break
 		}
@@ -765,9 +731,23 @@ func (m *MCTSPlayer) Select(root *MCGSNode, gs *GameState) []PathStep {
 		gs.ApplyMove(edge.Move)
 		m.path = append(m.path, PathStep{Node: edge.Dest, EdgeIdx: bestIdx})
 		curr = edge.Dest
-
 	}
 	return m.path
+}
+
+func (m *MCTSPlayer) expand(curr *MCGSNode, gs *GameState, move Move) (*MCGSNode, bool, int) {
+	gs.ApplyMove(move)
+
+	child := tt.Lookup(gs)
+	isNew := child == nil
+
+	if isNew {
+		child = NewMCGSNode(*gs)
+		tt.Store(gs.Hash, child)
+	}
+
+	edgeIdx := curr.AddEdge(move, child)
+	return child, isNew, edgeIdx
 }
 func (m *MCTSPlayer) Backprop(path []PathStep, result [3]float32) {
 	for i := len(path) - 1; i >= 0; i-- {
@@ -810,6 +790,34 @@ func (n *MCGSNode) AddEdge(move Move, dest *MCGSNode) int {
 		Q:    dest.Q,
 	})
 	return idx
+}
+
+func (n *MCGSNode) selectBestEdge() int {
+	if len(n.Edges) == 0 {
+		return -1
+	}
+
+	bestIdx := -1
+	bestScore := float32(negInf)
+	coeff := n.UCB1Coeff
+	pID := n.PlayerID
+
+	for i := range n.Edges {
+		edge := &n.Edges[i]
+		vPlus1 := int(edge.N) + 1
+		var u float32
+		if vPlus1 < len(invSqrtTable) {
+			u = coeff * invSqrtTable[vPlus1]
+		} else {
+			u = coeff / float32(math.Sqrt(float64(vPlus1)))
+		}
+		score := edge.Q[pID] + u
+		if score > bestScore {
+			bestScore = score
+			bestIdx = i
+		}
+	}
+	return bestIdx
 }
 
 func (n *MCGSNode) UpdateStats(result [3]float32) {
