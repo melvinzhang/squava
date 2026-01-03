@@ -430,33 +430,48 @@ func (gs GameState) GetBestMoves() Bitboard {
 	return GetBestMoves(gs.Board, threats)
 }
 
+func (gs *GameState) applyPiece(idx int) {
+	gs.Board.Move(gs.PlayerID, idx)
+	gs.Hash = zobrist.Move(gs.Hash, gs.PlayerID, idx)
+}
+
+func (gs *GameState) updateTurn(nextID int) {
+	gs.Hash = zobrist.SwapTurn(gs.Hash, gs.PlayerID, nextID)
+	gs.PlayerID = nextID
+}
+
+func (gs *GameState) updateActiveMask(newMask uint8) {
+	gs.Hash = zobrist.UpdateMask(gs.Hash, gs.ActiveMask, newMask)
+	gs.ActiveMask = newMask
+}
+
+func (gs *GameState) setWinner(winnerID int) {
+	gs.WinnerID = winnerID
+	gs.Hash = zobrist.SwapTurn(gs.Hash, gs.PlayerID, -1)
+	gs.PlayerID = -1
+}
+
 func (gs GameState) ApplyMove(move Move) GameState {
 	newGS := gs
 	idx := move.ToIndex()
-	newGS.Board.Move(gs.PlayerID, idx)
-	newGS.Hash = zobrist.Move(gs.Hash, gs.PlayerID, idx)
+	newGS.applyPiece(idx)
 
 	isWin, isLoss := CheckBoard(newGS.Board.GetPlayerBoard(gs.PlayerID))
 	if isWin {
-		newGS.WinnerID = gs.PlayerID
-		newGS.PlayerID = -1
-		newGS.Hash = zobrist.SwapTurn(newGS.Hash, gs.PlayerID, -1)
+		newGS.setWinner(gs.PlayerID)
 		return newGS
 	}
 	if isLoss {
-		newGS.ActiveMask, newGS.WinnerID = rules.ResolveLoss(gs.ActiveMask, gs.PlayerID)
-		newGS.Hash = zobrist.UpdateMask(newGS.Hash, gs.ActiveMask, newGS.ActiveMask)
-		if newGS.WinnerID != -1 {
-			newGS.PlayerID = -1
-			newGS.Hash = zobrist.SwapTurn(newGS.Hash, gs.PlayerID, -1)
+		newMask, winnerID := rules.ResolveLoss(gs.ActiveMask, gs.PlayerID)
+		newGS.updateActiveMask(newMask)
+		if winnerID != -1 {
+			newGS.setWinner(winnerID)
 		} else {
-			newGS.PlayerID = getNextPlayer(gs.PlayerID, newGS.ActiveMask)
-			newGS.Hash = zobrist.SwapTurn(newGS.Hash, gs.PlayerID, newGS.PlayerID)
+			newGS.updateTurn(getNextPlayer(gs.PlayerID, newMask))
 		}
 		return newGS
 	}
-	newGS.PlayerID = gs.NextPlayer()
-	newGS.Hash = zobrist.SwapTurn(newGS.Hash, gs.PlayerID, newGS.PlayerID)
+	newGS.updateTurn(gs.NextPlayer())
 	return newGS
 }
 
