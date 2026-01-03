@@ -433,22 +433,24 @@ func TestHeuristicMoveGenerationFuzz(t *testing.T) {
 		}
 		// 2. Setup Players
 		currentID := int(xrand() % 3)
-		// Next player doesn't strictly matter for the heuristic function's internal logic
-		// regarding currentID's wins, but matters for blocking.
-		nextID := (currentID + 1) % 3
 		// 3. Analyze
-		threats := AnalyzeThreats(board, currentID, nextID)
-		forced := GetForcedMoves(board, []int{currentID, nextID}, 0)
-		best := GetBestMoves(board, threats)
+		gs := NewGameState(board, currentID, 0x07)
+		forced := GetForcedMoves(board, []int{0, 1, 2}, currentID)
+		best := gs.GetBestMoves()
+		myWins := gs.Wins[currentID]
+		myLoses := gs.Loses[currentID]
+		nextID := gs.NextPlayer()
+		nextWins := gs.Wins[nextID]
+
 		// 4. Verify Validity
 		empty := ^board.Occupied
-		if (threats.MyWins & ^empty) != 0 {
+		if (myWins & ^empty) != 0 {
 			t.Errorf("Iteration %d: MyWins overlaps occupied", i)
 		}
-		if (threats.NextWins & ^empty) != 0 {
+		if (nextWins & ^empty) != 0 {
 			t.Errorf("Iteration %d: NextWins overlaps occupied", i)
 		}
-		if (threats.MyLoses & ^empty) != 0 {
+		if (myLoses & ^empty) != 0 {
 			t.Errorf("Iteration %d: MyLoses overlaps occupied", i)
 		}
 		if (forced & ^empty) != 0 {
@@ -458,54 +460,54 @@ func TestHeuristicMoveGenerationFuzz(t *testing.T) {
 			t.Errorf("Iteration %d: Best moves overlap occupied", i)
 		}
 		// 5. Verify MyWins (Immediate Win)
-		w := threats.MyWins
+		w := myWins
 		for w != 0 {
 			idx := bits.TrailingZeros64(uint64(w))
 			testBoard := board
 			testBoard.Set(idx, currentID)
 			isWin, _ := CheckBoard(testBoard.P[currentID])
 			if !isWin {
-				t.Errorf("Iteration %d: AnalyzeThreats claimed immediate win at %d, but CheckBoard said no.", i, idx)
+				t.Errorf("Iteration %d: GameState claimed immediate win at %d, but CheckBoard said no.", i, idx)
 			}
 			w &= w - 1
 		}
 		// 6. Verify NextWins (Opponent Win)
-		nw := threats.NextWins
+		nw := nextWins
 		for nw != 0 {
 			idx := bits.TrailingZeros64(uint64(nw))
 			testBoard := board
 			testBoard.Set(idx, nextID)
 			isWin, _ := CheckBoard(testBoard.P[nextID])
 			if !isWin {
-				t.Errorf("Iteration %d: AnalyzeThreats claimed opponent win at %d, but CheckBoard said no.", i, idx)
+				t.Errorf("Iteration %d: GameState claimed opponent win at %d, but CheckBoard said no.", i, idx)
 			}
 			nw &= nw - 1
 		}
 		// 7. Verify MyLoses (Self-Loss)
-		l := threats.MyLoses
+		l := myLoses
 		for l != 0 {
 			idx := bits.TrailingZeros64(uint64(l))
 			testBoard := board
 			testBoard.Set(idx, currentID)
 			_, isLoss := CheckBoard(testBoard.P[currentID])
 			if !isLoss {
-				t.Errorf("Iteration %d: AnalyzeThreats claimed self-loss at %d, but CheckBoard said no.", i, idx)
+				t.Errorf("Iteration %d: GameState claimed self-loss at %d, but CheckBoard said no.", i, idx)
 			}
 			l &= l - 1
 		}
 		// 8. Verify Priority Logic
-		if threats.MyWins != 0 {
-			if forced != threats.MyWins {
+		if myWins != 0 {
+			if forced != myWins {
 				t.Errorf("Iteration %d: Forced should equal MyWins", i)
 			}
-			if best != threats.MyWins {
+			if best != myWins {
 				t.Errorf("Iteration %d: Best should equal MyWins", i)
 			}
-		} else if threats.NextWins != 0 {
-			if forced != threats.NextWins {
+		} else if nextWins != 0 {
+			if forced != nextWins {
 				t.Errorf("Iteration %d: Forced should equal NextWins", i)
 			}
-			if best != threats.NextWins {
+			if best != nextWins {
 				t.Errorf("Iteration %d: Best should equal NextWins", i)
 			}
 		} else {
@@ -513,7 +515,7 @@ func TestHeuristicMoveGenerationFuzz(t *testing.T) {
 				t.Errorf("Iteration %d: Forced should be 0 when no immediate threats", i)
 			}
 			// Verify Best avoids losses if possible
-			safe := empty & ^threats.MyLoses
+			safe := empty & ^myLoses
 			if safe != 0 {
 				if best != safe {
 					t.Errorf("Iteration %d: Best should be safe moves (Empty & ^MyLoses). Got %x, Expected %x", i, best, safe)

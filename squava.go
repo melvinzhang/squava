@@ -199,40 +199,6 @@ func GetWinsAndLosses(bb Bitboard, empty Bitboard) (wins Bitboard, loses Bitboar
 	return Bitboard(w), Bitboard(l & ^w)
 }
 
-// ThreatAnalysis holds pre-calculated win/loss bitboards for a given turn.
-type ThreatAnalysis struct {
-	MyWins   Bitboard
-	MyLoses  Bitboard
-	NextWins Bitboard
-}
-
-// AnalyzeThreats calculates the immediate win/loss threats for the current and next player.
-func AnalyzeThreats(board Board, currentPID, nextPID int) ThreatAnalysis {
-	activeMask := uint8((1 << uint(currentPID)) | (1 << uint(nextPID)))
-	gs := NewGameState(board, currentPID, activeMask)
-	return ThreatAnalysis{
-		MyWins:   gs.Wins[currentPID],
-		MyLoses:  gs.Loses[currentPID],
-		NextWins: gs.Wins[nextPID],
-	}
-}
-
-func GetBestMoves(board Board, threats ThreatAnalysis) Bitboard {
-	if threats.MyWins != 0 {
-		return threats.MyWins
-	}
-	if threats.NextWins != 0 {
-		return threats.NextWins
-	}
-
-	empty := ^board.Occupied
-	safeMoves := empty & ^threats.MyLoses
-	if safeMoves != 0 {
-		return safeMoves
-	}
-	return empty
-}
-
 func GetForcedMoves(board Board, players []int, turnIdx int) Bitboard {
 	activeMask := uint8(0)
 	for _, pID := range players {
