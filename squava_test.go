@@ -146,9 +146,8 @@ func TestSimulationLogic(t *testing.T) {
 	board := Board{}
 	board.Set(0, 0)
 	board.Set(1, 0)
-	h := ZobristHash(board, 0, 0x07)
 	// P0 moves to 2, creating 3-in-a-row
-	gs := GameState{Board: board, Hash: h, PlayerID: 0, ActiveMask: 0x07, WinnerID: -1}
+	gs := NewGameState(board, 0, 0x07)
 	gs.ApplyMove(MoveFromIndex(2))
 	if gs.WinnerID != -1 {
 		t.Errorf("Expected no winner yet, got %d", gs.WinnerID)
@@ -165,9 +164,8 @@ func TestSimulationLogic(t *testing.T) {
 	board.Set(1, 0)
 	board.Set(8, 1)
 	board.Set(9, 1)
-	h = ZobristHash(board, 0, 0x07)
 	// P0 moves to 2 -> eliminated. Mask becomes 0x06 (P1, P2)
-	gs1 := GameState{Board: board, Hash: h, PlayerID: 0, ActiveMask: 0x07, WinnerID: -1}
+	gs1 := NewGameState(board, 0, 0x07)
 	gs1.ApplyMove(MoveFromIndex(2))
 	// P1 moves to 10 -> eliminated. Mask becomes 0x04 (P2)
 	gs1.ApplyMove(MoveFromIndex(10))
@@ -216,7 +214,7 @@ func TestDrawOnFullBoard(t *testing.T) {
 		board.Set(i, (i/2)%3)
 	}
 	// Simulation should terminate with a draw if no moves left
-	gs := GameState{Board: board, ActiveMask: 0x07, PlayerID: 0, WinnerID: -1}
+	gs := NewGameState(board, 0, 0x07)
 	res, _, _ := RunSimulation(&gs)
 	// Expected draw score for 3 players is 1/3 each
 	expected := float32(1.0 / 3.0)
@@ -247,7 +245,7 @@ func TestRunSimulationDetailed(t *testing.T) {
 	board.Set(1, 0) // B1
 	board.Set(2, 0) // C1
 	// P0 to move, D1 (3) is win
-	gs1 := GameState{Board: board, ActiveMask: 0x07, PlayerID: 0, WinnerID: -1}
+	gs1 := NewGameState(board, 0, 0x07)
 	res, _, _ := RunSimulation(&gs1)
 	if res[0] != 1.0 {
 		t.Errorf("Immediate win failed. Expected P0 win, got %v", res)
@@ -260,7 +258,7 @@ func TestRunSimulationDetailed(t *testing.T) {
 	// P0 to move, P1 is next. P0 must block at D1 (3)
 	// We seed xorState to ensure we don't just "get lucky"
 	xorState = 42
-	gs2 := GameState{Board: board, ActiveMask: 0x07, PlayerID: 0, WinnerID: -1}
+	gs2 := NewGameState(board, 0, 0x07)
 	res, steps, _ := RunSimulation(&gs2)
 	// If P0 blocks correctly, the game should continue for more than 1 step
 	if steps <= 1 && res[1] == 1.0 {
@@ -279,14 +277,14 @@ func TestRunSimulationDetailed(t *testing.T) {
 		}
 	}
 	// Only bit 16 is empty. P0 must move there.
-	gs3 := GameState{Board: board, ActiveMask: 0x07, PlayerID: 0, WinnerID: -1}
+	gs3 := NewGameState(board, 0, 0x07)
 	res, _, _ = RunSimulation(&gs3)
 	if res[0] == 1.0 {
 		t.Errorf("Elimination failed. P0 should have lost, but won: %v", res)
 	}
 }
 func referenceRunSimulation(board Board, activeMask uint8, currentID int) ([3]float32, Board) {
-	gs := GameState{Board: board, ActiveMask: activeMask, PlayerID: currentID, WinnerID: -1}
+	gs := NewGameState(board, currentID, activeMask)
 	for {
 		if winnerID, ok := gs.IsTerminal(); ok {
 			return ScoreTerminal(gs.ActiveMask, winnerID), gs.Board
@@ -318,7 +316,7 @@ func TestRunSimulationRandomized(t *testing.T) {
 		// Ensure both use exact same random sequence
 		seed := uint64(i + 1)
 		xorState = seed
-		gs := GameState{Board: board, ActiveMask: 0x07, PlayerID: 0, WinnerID: -1}
+		gs := NewGameState(board, 0, 0x07)
 		resOpt, _, boardOpt := RunSimulation(&gs)
 		xorState = seed
 		resRef, boardRef := referenceRunSimulation(board, 0x07, 0)
@@ -365,12 +363,10 @@ func TestZobristIncrementalFuzz(t *testing.T) {
 		// Find n-th bit
 		idx := SelectBit64(uint64(empty), n)
 		move := MoveFromIndex(idx)
-		// 4. Compute Initial Hash
-		initialHash := ZobristHash(board, currentID, activeMask)
-		gs := GameState{Board: board, Hash: initialHash, PlayerID: currentID, ActiveMask: activeMask, WinnerID: -1}
-		// 5. Execute Step (Incremental Update)
+		// 4. Execute Step (Incremental Update)
+		gs := NewGameState(board, currentID, activeMask)
 		gs.ApplyMove(move)
-		// 6. Verification: Compute Hash from Scratch on New State
+		// 5. Verification: Compute Hash from Scratch on New State
 		refHash := ZobristHash(gs.Board, gs.PlayerID, gs.ActiveMask)
 		if gs.Hash != refHash {
 			t.Errorf("Iteration %d: Hash mismatch.\nState: %+v\nIncremental: %016x\nReference:   %016x",
@@ -442,7 +438,7 @@ func TestHeuristicMoveGenerationFuzz(t *testing.T) {
 		nextID := (currentID + 1) % 3
 		// 3. Analyze
 		threats := AnalyzeThreats(board, currentID, nextID)
-		forced := GetForcedMoves(board, currentID, nextID)
+		forced := GetForcedMoves(board, []int{currentID, nextID}, 0)
 		best := GetBestMoves(board, threats)
 		// 4. Verify Validity
 		empty := ^board.Occupied
@@ -634,7 +630,7 @@ func TestMCTSInvariants(t *testing.T) {
 			continue
 		}
 		// Validate the resulting graph
-		rootGS := GameState{Board: board, PlayerID: 0, ActiveMask: 0x07, Hash: ZobristHash(board, 0, 0x07), WinnerID: -1}
+		rootGS := NewGameState(board, 0, 0x07)
 		ValidateMCTSGraph(t, player.root, rootGS)
 	}
 }
@@ -766,7 +762,7 @@ func TestIncrementalUpdateEquivalence(t *testing.T) {
 func TestMCTSBackpropIncremental(t *testing.T) {
 	// Test the actual Backprop method of MCTSPlayer
 	m := NewMCTSPlayer("Test", "T", 0, 100)
-	gs := GameState{Board: Board{}, PlayerID: 0, ActiveMask: 0x07, Hash: 1234, WinnerID: -1}
+	gs := NewGameState(Board{}, 0, 0x07)
 	node := NewMCGSNode(gs)
 
 	path := []PathStep{{Node: node, EdgeIdx: -1}}
@@ -795,9 +791,9 @@ func TestMCTSBackpropIncremental(t *testing.T) {
 }
 
 func TestMCGSNodeMethods(t *testing.T) {
-	gs1 := GameState{Board: Board{}, PlayerID: 0, ActiveMask: 0x07, Hash: 1234, WinnerID: -1}
+	gs1 := NewGameState(Board{}, 0, 0x07)
 	node := NewMCGSNode(gs1)
-	gs2 := GameState{Board: Board{}, PlayerID: 1, ActiveMask: 0x07, Hash: 5678, WinnerID: -1}
+	gs2 := NewGameState(Board{}, 1, 0x07)
 	child := NewMCGSNode(gs2)
 	child.Q = [3]float32{0.1, 0.2, 0.3}
 
@@ -858,7 +854,7 @@ func TestMCGSNodeMethods(t *testing.T) {
 func TestTranspositionTableMethods(t *testing.T) {
 	table := make(TranspositionTable, TTSize)
 	board := Board{}
-	gs := GameState{Board: board, PlayerID: 0, ActiveMask: 0x07, Hash: 1234, WinnerID: -1}
+	gs := NewGameState(board, 0, 0x07)
 	node := NewMCGSNode(gs)
 
 	table.Store(gs.Hash, node)
@@ -905,11 +901,11 @@ func TestZobristHelper(t *testing.T) {
 
 func TestGameRulesHelper(t *testing.T) {
 	// Test IsTerminal
-	gs := GameState{ActiveMask: 0x01, WinnerID: -1}
+	gs := NewGameState(Board{}, 0, 0x01)
 	if winner, ok := gs.IsTerminal(); !ok || winner != 0 {
 		t.Errorf("IsTerminal failed for single player mask 0x01: got %v, %v", winner, ok)
 	}
-	gs.ActiveMask = 0x03
+	gs = NewGameState(Board{}, 0, 0x03)
 	if _, ok := gs.IsTerminal(); ok {
 		t.Errorf("IsTerminal should be false for multi-player mask 0x03")
 	}
