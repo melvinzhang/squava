@@ -53,10 +53,6 @@ const (
 
 // Bitboard constants
 const (
-	FileA uint64 = 0x0101010101010101
-	FileH uint64 = 0x8080808080808080
-	Full  uint64 = 0xFFFFFFFFFFFFFFFF
-
 	MaskNotA   uint64 = 0xFEFEFEFEFEFEFEFE
 	MaskNotH   uint64 = 0x7F7F7F7F7F7F7F7F
 	MaskNotAB  uint64 = 0xFCFCFCFCFCFCFCFC
