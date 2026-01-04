@@ -9,6 +9,7 @@ A high-performance, 3-player implementation of Squava on an 8x8 board, written i
 Squava is traditionally a 2-player game. This version expands the rules for 3 players:
 - **Winning:** The first player to get **4-in-a-row** (horizontally, vertically, or diagonally) wins immediately.
 - **Elimination:** If a player creates a **3-in-a-row** and does *not* complete a 4-in-a-row with the same move, they are eliminated from the game. Their pieces remain on the board as obstacles.
+- **Forced Moves:** If a player can complete a 4-in-a-row on their current turn, they **must** take the win. If they cannot win immediately but the **next** active player has a winning move, the current player is **forced** to block that move.
 - **Goal:** Be the last player standing or the first to complete 4-in-a-row.
 
 ## Web Version
