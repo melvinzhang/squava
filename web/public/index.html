@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Squava Wasm Test</title>
+    <style>
+        #board {
+            display: grid;
+            grid-template-columns: repeat(8, 40px);
+            gap: 2px;
+            margin-top: 20px;
+        }
+        .cell {
+            width: 40px;
+            height: 40px;
+            border: 1px solid #ccc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-family: sans-serif;
+            font-weight: bold;
+        }
+        .cell:hover { background: #eee; }
+    </style>
+</head>
+<body>
+    <h1>Squava Wasm: AI vs AI vs You</h1>
+    <button id="newGame" disabled>Start New Game</button>
+    <div id="status">Loading Wasm...</div>
+    <div id="board"></div>
+    <pre id="output" style="display:none"></pre>
+
+    <script>
+        const worker = new Worker('worker.js');
+        const status = document.getElementById('status');
+        const boardDiv = document.getElementById('board');
+        const output = document.getElementById('output');
+        const newGameBtn = document.getElementById('newGame');
+
+        worker.onmessage = (e) => {
+            const { type, payload } = e.data;
+            if (type === 'READY') {
+                status.innerText = 'Wasm Ready. Click "Start New Game" to play as Player 3 (Z).';
+                newGameBtn.disabled = false;
+            } else if (type === 'GAME_UPDATED') {
+                renderBoard(payload.board);
+                output.innerText = 'Hash: ' + payload.hash;
+                
+                if (!payload.board.terminal && payload.board.playerID !== 2) {
+                    const aiPlayer = payload.board.playerID + 1;
+                    status.innerText = 'Player ' + aiPlayer + ' (AI) is thinking...';
+                    setTimeout(() => {
+                        worker.postMessage({ type: 'GET_AI_MOVE', payload: { iterations: 20000 } });
+                    }, 600);
+                }
+            } else if (type === 'AI_MOVE_RESULT') {
+                worker.postMessage({ type: 'APPLY_MOVE', payload: { idx: payload.move } });
+            }
+        };
+
+        function renderBoard(board) {
+            boardDiv.innerHTML = '';
+            const p0 = BigInt(board.p0);
+            const p1 = BigInt(board.p1);
+            const p2 = BigInt(board.p2);
+
+            for (let i = 0; i < 64; i++) {
+                const cell = document.createElement('div');
+                cell.className = 'cell';
+                const mask = 1n << BigInt(i);
+                if ((p0 & mask) !== 0n) cell.innerText = 'X';
+                else if ((p1 & mask) !== 0n) cell.innerText = 'O';
+                else if ((p2 & mask) !== 0n) cell.innerText = 'Z';
+                
+                cell.onclick = () => {
+                    if (board.terminal || board.playerID !== 2) return;
+                    const mask = 1n << BigInt(i);
+                    if (((BigInt(board.p0) | BigInt(board.p1) | BigInt(board.p2)) & mask) !== 0n) return;
+                    
+                    // Check forced moves if any
+                    const fMask = BigInt(board.forcedMoves || "0");
+                    if (fMask !== 0n && (fMask & mask) === 0n) {
+                        return; // Not a valid forced move
+                    }
+
+                    worker.postMessage({ type: 'APPLY_MOVE', payload: { idx: i } });
+                };
+                boardDiv.appendChild(cell);
+            }
+            if (board.terminal) {
+                status.innerText = 'Game Over. Winner: ' + (board.winnerID === -1 ? 'Draw' : 'Player ' + (board.winnerID + 1));
+            } else {
+                let active = [];
+                for(let i=0; i<3; i++) {
+                    if (board.activeMask & (1 << i)) active.push(i+1);
+                }
+                let forcedText = "";
+                if (board.forcedMoves && board.forcedMoves !== "0") {
+                    forcedText = " | YOU MUST BLOCK!";
+                }
+                
+                if (board.playerID === 2) {
+                    status.innerText = 'YOUR TURN (Player 3) | Active: ' + active.join(', ') + forcedText;
+                } else {
+                    status.innerText = 'Player ' + (board.playerID + 1) + ' (AI) is thinking...' + forcedText;
+                }
+            }
+            highlightForced(board.forcedMoves, board.playerID === 2);
+        }
+
+        function highlightForced(forcedMaskStr, isUserTurn) {
+            const cells = document.querySelectorAll('.cell');
+            const mask = BigInt(forcedMaskStr || "0");
+            cells.forEach((cell, i) => {
+                cell.style.backgroundColor = '';
+                if (mask !== 0n) {
+                    if ((mask & (1n << BigInt(i))) !== 0n) {
+                        cell.style.backgroundColor = isUserTurn ? '#fff3cd' : '#eee'; 
+                        cell.style.borderColor = isUserTurn ? '#ffc107' : '#ccc';
+                    } else {
+                        cell.style.opacity = '0.5';
+                    }
+                } else {
+                    cell.style.opacity = '1';
+                    cell.style.borderColor = '#ccc';
+                }
+            });
+        }
+
+        newGameBtn.onclick = () => {
+            worker.postMessage({ type: 'NEW_GAME' });
+        };
+
+        getAIBtn.onclick = () => {
+            status.innerText = 'AI Thinking...';
+            worker.postMessage({ type: 'GET_AI_MOVE', payload: { iterations: 20000 } });
+        };
+    </script>
+</body>
+</html>

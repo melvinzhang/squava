@@ -1,4 +1,4 @@
-.PHONY: all build test clean profile analyze fuzz benchmark
+.PHONY: all build test clean profile analyze fuzz benchmark wasm serve
 
 BINARY_NAME=squava
 ITERATIONS=1000000
@@ -9,6 +9,15 @@ all: build
 
 build:
 	go build -o $(BINARY_NAME) .
+
+wasm:
+	mkdir -p web/public
+	cp /usr/share/go-1.24/lib/wasm/wasm_exec.js web/public/
+	GOOS=js GOARCH=wasm go build -o web/public/squava.wasm .
+
+serve: wasm
+	@echo "Serving at http://localhost:8080"
+	python3 -m http.server 8080 --directory web/public
 
 test:
 	go test -v .
