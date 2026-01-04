@@ -35,12 +35,22 @@ The engine is optimized for high throughput:
 
 ## Usage
 
-### Build
-```bash
-go build squava.go
-```
+### Commands
 
-### Run
+| Command | Description |
+|---------|-------------|
+| `make build` | Compiles the `squava` binary. |
+| `make test` | Runs the test suite. |
+| `make fuzz` | Runs fuzz tests for robustness. |
+| `make benchmark` | Runs 100 MCTS games and saves logs to `logs/`. |
+| `make analyze` | Analyzes benchmark logs to produce win/loss statistics. |
+| `make profile` | Runs a high-iteration game and outputs a CPU profile. |
+| `make clean` | Removes binaries and profile files. |
+
+### Running the Game
+
+After building with `make build`, you can run the game:
+
 ```bash
 # 3 Humans
 ./squava
@@ -48,34 +58,34 @@ go build squava.go
 # 1 Human vs 2 AI (10,000 iterations)
 ./squava -p2 mcts -p3 mcts -iterations 10000
 
-# AI vs AI vs AI for profiling
-./squava -p1 mcts -p2 mcts -p3 mcts -iterations 100000 -cpuprofile cpu.prof
+# AI vs AI vs AI with a specific seed
+./squava -p1 mcts -p2 mcts -p3 mcts -iterations 1000000 -seed 641728870
 ```
 
 ### Flags
 - `-p1, -p2, -p3`: Player type (`human` or `mcts`).
 - `-iterations`: Number of visits the root node must reach per turn.
+- `-seed`: Random seed for reproducibility.
 - `-cpuprofile`: File path to write a CPU profile for performance analysis.
 
-### Profiling and Analysis
+## Profiling and Analysis
 
-To analyze the performance of the engine, you can generate a CPU profile and view it using Go's built-in profiling tools:
+To analyze the performance of the engine, use the built-in profiling rules:
 
-1. **Generate a profile:**
+1. **Generate and view a top-level profile:**
    ```bash
-   ./squava -p1 mcts -p2 mcts -p3 mcts -iterations 100000 -cpuprofile cpu.prof
+   make profile
    ```
 
-2. **View the top bottlenecks in the CLI:**
+2. **Inspect specific functions:**
    ```bash
-   go tool pprof -top cpu.prof
+   make pprof
    ```
 
 3. **Open an interactive web interface (requires Graphviz):**
    ```bash
    go tool pprof -http=:8080 cpu.prof
    ```
-   This will open a browser window showing a call graph and a flame graph of the execution.
 
 ## Performance Benchmarks
 
