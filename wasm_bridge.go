@@ -118,7 +118,7 @@ func getBoard(this js.Value, args []js.Value) any {
 
 func main() {
 	c := make(chan struct{}, 0)
-	fmt.Println("Squava Wasm Bridge Initialized")
+	fmt.Println("Squava Engine Initialized")
 	js.Global().Set("squavaNewGame", js.FuncOf(newGame))
 	js.Global().Set("squavaApplyMove", js.FuncOf(applyMove))
 	js.Global().Set("squavaGetBestMove", js.FuncOf(getBestMove))

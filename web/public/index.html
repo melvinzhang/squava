@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Squava Wasm Test</title>
+    <title>Squava</title>
     <style>
         #board {
             display: grid;
@@ -25,9 +25,9 @@
     </style>
 </head>
 <body>
-    <h1>Squava Wasm: AI vs AI vs You</h1>
+    <h1>Squava: AI vs AI vs You</h1>
     <button id="newGame" disabled>Start New Game</button>
-    <div id="status">Loading Wasm...</div>
+    <div id="status">Loading game engine...</div>
     <div id="board"></div>
     <pre id="output" style="display:none"></pre>
 
@@ -41,7 +41,7 @@
         worker.onmessage = (e) => {
             const { type, payload } = e.data;
             if (type === 'READY') {
-                status.innerText = 'Wasm Ready. Click "Start New Game" to play as Player 3 (Z).';
+                status.innerText = 'Ready. Click "Start New Game" to play as Player 3 (Z).';
                 newGameBtn.disabled = false;
             } else if (type === 'GAME_UPDATED') {
                 renderBoard(payload.board);
@@ -130,11 +130,6 @@
 
         newGameBtn.onclick = () => {
             worker.postMessage({ type: 'NEW_GAME' });
-        };
-
-        getAIBtn.onclick = () => {
-            status.innerText = 'AI Thinking...';
-            worker.postMessage({ type: 'GET_AI_MOVE', payload: { iterations: 20000 } });
         };
     </script>
 </body>
