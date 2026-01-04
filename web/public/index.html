@@ -26,7 +26,15 @@
 </head>
 <body>
     <h1>Squava: AI vs AI vs You</h1>
-    <button id="newGame" disabled>Start New Game</button>
+    <div style="margin-bottom: 10px;">
+        <label for="playerSelect">Choose your player: </label>
+        <select id="playerSelect">
+            <option value="0">Player 1 (X)</option>
+            <option value="1">Player 2 (O)</option>
+            <option value="2" selected>Player 3 (Z)</option>
+        </select>
+        <button id="newGame" disabled>Start New Game</button>
+    </div>
     <div id="status">Loading game engine...</div>
     <div id="board"></div>
     <pre id="output" style="display:none"></pre>
@@ -37,17 +45,20 @@
         const boardDiv = document.getElementById('board');
         const output = document.getElementById('output');
         const newGameBtn = document.getElementById('newGame');
+        const playerSelect = document.getElementById('playerSelect');
+
+        let humanPlayerID = 2; // Default to P3
 
         worker.onmessage = (e) => {
             const { type, payload } = e.data;
             if (type === 'READY') {
-                status.innerText = 'Ready. Click "Start New Game" to play as Player 3 (Z).';
+                status.innerText = 'Ready. Choose your player and click "Start New Game".';
                 newGameBtn.disabled = false;
             } else if (type === 'GAME_UPDATED') {
                 renderBoard(payload.board);
                 output.innerText = 'Hash: ' + payload.hash;
                 
-                if (!payload.board.terminal && payload.board.playerID !== 2) {
+                if (!payload.board.terminal && payload.board.playerID !== humanPlayerID) {
                     const aiPlayer = payload.board.playerID + 1;
                     status.innerText = 'Player ' + aiPlayer + ' (AI) is thinking...';
                     setTimeout(() => {
@@ -74,7 +85,7 @@
                 else if ((p2 & mask) !== 0n) cell.innerText = 'Z';
                 
                 cell.onclick = () => {
-                    if (board.terminal || board.playerID !== 2) return;
+                    if (board.terminal || board.playerID !== humanPlayerID) return;
                     const mask = 1n << BigInt(i);
                     if (((BigInt(board.p0) | BigInt(board.p1) | BigInt(board.p2)) & mask) !== 0n) return;
                     
@@ -100,13 +111,13 @@
                     forcedText = " | YOU MUST BLOCK!";
                 }
                 
-                if (board.playerID === 2) {
-                    status.innerText = 'YOUR TURN (Player 3) | Active: ' + active.join(', ') + forcedText;
+                if (board.playerID === humanPlayerID) {
+                    status.innerText = 'YOUR TURN (Player ' + (humanPlayerID + 1) + ') | Active: ' + active.join(', ') + forcedText;
                 } else {
                     status.innerText = 'Player ' + (board.playerID + 1) + ' (AI) is thinking...' + forcedText;
                 }
             }
-            highlightForced(board.forcedMoves, board.playerID === 2);
+            highlightForced(board.forcedMoves, board.playerID === humanPlayerID);
         }
 
         function highlightForced(forcedMaskStr, isUserTurn) {
@@ -129,6 +140,7 @@
         }
 
         newGameBtn.onclick = () => {
+            humanPlayerID = parseInt(playerSelect.value);
             worker.postMessage({ type: 'NEW_GAME' });
         };
     </script>
