@@ -156,7 +156,7 @@ func BenchmarkGetWinsAndLossesGo(b *testing.B) {
 	empty := Bitboard(0xFFFFFFFFFFFFFFFF)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		getWinsAndLossesGo(bb, empty)
+		getWinsAndLossesGo(uint64(bb), uint64(empty))
 	}
 }
 

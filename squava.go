@@ -2,13 +2,11 @@ package main
 
 import (
 	"bufio"
-	"flag"
 	"fmt"
 	"math"
 	"math/bits"
 	"math/rand"
 	"os"
-	"runtime/pprof"
 	"strconv"
 	"strings"
 	"time"
@@ -117,19 +115,13 @@ func CheckBoard(bb Bitboard) (isWin, isLoss bool) {
 	return
 }
 
-func getWinsAndLossesAVX2(b, e uint64) (w, l uint64)
-
 // GetWinsAndLosses calculates win and loss bitboards.
 func GetWinsAndLosses(bb Bitboard, empty Bitboard) (wins Bitboard, loses Bitboard) {
 	w, l := getWinsAndLossesAVX2(uint64(bb), uint64(empty))
 	return Bitboard(w), Bitboard(l & ^w)
 }
 
-func getWinsAndLossesGo(bb Bitboard, empty Bitboard) (wins Bitboard, loses Bitboard) {
-	b := uint64(bb)
-	e := uint64(empty)
-	var w, l uint64
-
+func getWinsAndLossesGo(b, e uint64) (w, l uint64) {
 	// Direction 0: Horizontal (s=1)
 	{
 		r1 := (b >> 1) & MaskNotH
@@ -194,7 +186,7 @@ func getWinsAndLossesGo(bb Bitboard, empty Bitboard) (wins Bitboard, loses Bitbo
 		w |= e & (r1r2&(r3|l1) | l1l2&(r1|l3))
 	}
 
-	return Bitboard(w), Bitboard(l & ^w)
+	return
 }
 
 func GetForcedMoves(board Board, players []int, turnIdx int) Bitboard {
@@ -859,8 +851,6 @@ func (n *MCGSNode) IsTerminal() (int, bool) {
 	return n.WinnerID, n.Terminal
 }
 
-func pdep(src, mask uint64) uint64
-
 func SelectBit64(v uint64, k int) int {
 	return bits.TrailingZeros64(pdep(uint64(1)<<uint(k), v))
 }
@@ -1047,47 +1037,4 @@ func (g *SquavaGame) Run() {
 		}
 	}
 }
-func main() {
-	p1Type := flag.String("p1", "human", "Player 1 type (human/mcts)")
-	p2Type := flag.String("p2", "human", "Player 2 type (human/mcts)")
-	p3Type := flag.String("p3", "human", "Player 3 type (human/mcts)")
-	iterations := flag.Int("iterations", 1000, "MCTS iterations")
-	cpuProfile := flag.String("cpuprofile", "", "write cpu profile to file")
-	seed := flag.Int64("seed", 0, "Random seed (0 for time-based)")
-	flag.Parse()
 
-	if *cpuProfile != "" {
-		f, err := os.Create(*cpuProfile)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "could not create CPU profile: %v\n", err)
-			os.Exit(1)
-		}
-		defer f.Close()
-		if err := pprof.StartCPUProfile(f); err != nil {
-			fmt.Fprintf(os.Stderr, "could not start CPU profile: %v\n", err)
-			os.Exit(1)
-		}
-		defer pprof.StopCPUProfile()
-	}
-	if *seed == 0 {
-		xorState = uint64(time.Now().UnixNano())
-	} else {
-		xorState = uint64(*seed)
-	}
-	if xorState == 0 {
-		xorState = 1
-	}
-	game := NewSquavaGame()
-	createPlayer := func(t, name, symbol string, id int) Player {
-		if t == "mcts" {
-			p := NewMCTSPlayer(name, symbol, id, *iterations)
-			p.Verbose = true
-			return p
-		}
-		return NewHumanPlayer(name, symbol, id)
-	}
-	game.AddPlayer(createPlayer(*p1Type, "Player 1", "X", 0))
-	game.AddPlayer(createPlayer(*p2Type, "Player 2", "O", 1))
-	game.AddPlayer(createPlayer(*p3Type, "Player 3", "Z", 2))
-	game.Run()
-}
