@@ -744,6 +744,7 @@ type MCGSEdge struct {
 	Dest *MCGSNode
 	N    int32
 	Q    [3]float32
+	U    float32
 }
 
 type MCGSNode struct {
@@ -765,6 +766,7 @@ func (n *MCGSNode) AddEdge(move Move, dest *MCGSNode) int {
 		Move: move,
 		Dest: dest,
 		Q:    dest.Q,
+		U:    invSqrtTable[1],
 	})
 	return idx
 }
@@ -781,14 +783,7 @@ func (n *MCGSNode) selectBestEdge() int {
 
 	for i := range n.Edges {
 		edge := &n.Edges[i]
-		vPlus1 := int(edge.N) + 1
-		var u float32
-		if vPlus1 < len(invSqrtTable) {
-			u = coeff * invSqrtTable[vPlus1]
-		} else {
-			u = coeff / float32(math.Sqrt(float64(vPlus1)))
-		}
-		score := edge.Q[pID] + u
+		score := edge.Q[pID] + coeff*edge.U
 		if score > bestScore {
 			bestScore = score
 			bestIdx = i
@@ -817,6 +812,12 @@ func (n *MCGSNode) SyncEdge(idx int, child *MCGSNode) {
 	edge := &n.Edges[idx]
 	edge.N++
 	edge.Q = child.Q
+	vPlus1 := int(edge.N) + 1
+	if vPlus1 < len(invSqrtTable) {
+		edge.U = invSqrtTable[vPlus1]
+	} else {
+		edge.U = float32(1.0 / math.Sqrt(float64(vPlus1)))
+	}
 }
 
 func (n *MCGSNode) PopUntriedMove() (Move, bool) {
