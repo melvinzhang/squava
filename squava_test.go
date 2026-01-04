@@ -141,6 +141,25 @@ func TestGetWinsAndLossesRandomized(t *testing.T) {
 		}
 	}
 }
+
+func BenchmarkGetWinsAndLosses(b *testing.B) {
+	bb := Bitboard(0x000000000000000F)
+	empty := Bitboard(0xFFFFFFFFFFFFFFFF)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		GetWinsAndLosses(bb, empty)
+	}
+}
+
+func BenchmarkGetWinsAndLossesGo(b *testing.B) {
+	bb := Bitboard(0x000000000000000F)
+	empty := Bitboard(0xFFFFFFFFFFFFFFFF)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		getWinsAndLossesGo(bb, empty)
+	}
+}
+
 func TestSimulationLogic(t *testing.T) {
 	// Test elimination logic: P0 makes 3-in-a-row and should be eliminated.
 	board := Board{}

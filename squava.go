@@ -117,9 +117,15 @@ func CheckBoard(bb Bitboard) (isWin, isLoss bool) {
 	return
 }
 
+func getWinsAndLossesAVX2(b, e uint64) (w, l uint64)
+
 // GetWinsAndLosses calculates win and loss bitboards.
-// This function is manually unrolled for performance.
 func GetWinsAndLosses(bb Bitboard, empty Bitboard) (wins Bitboard, loses Bitboard) {
+	w, l := getWinsAndLossesAVX2(uint64(bb), uint64(empty))
+	return Bitboard(w), Bitboard(l & ^w)
+}
+
+func getWinsAndLossesGo(bb Bitboard, empty Bitboard) (wins Bitboard, loses Bitboard) {
 	b := uint64(bb)
 	e := uint64(empty)
 	var w, l uint64
