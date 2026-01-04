@@ -344,7 +344,7 @@ func init() {
 		invSqrtTable[i] = float32(1.0 / math.Sqrt(float64(i)))
 	}
 	for i := 1; i < len(coeffTable); i++ {
-		coeffTable[i] = float32(2.0 * math.Sqrt(math.Log(float64(i))))
+		coeffTable[i] = float32(math.Sqrt(2.0 * math.Log(float64(i))))
 	}
 	tt = make(TranspositionTable, TTSize)
 }
@@ -809,7 +809,7 @@ func (n *MCGSNode) UpdateStats(result [3]float32) {
 	if nPlus1 < len(coeffTable) {
 		n.UCB1Coeff = coeffTable[nPlus1]
 	} else {
-		n.UCB1Coeff = float32(2.0 * math.Sqrt(math.Log(float64(nPlus1))))
+		n.UCB1Coeff = float32(math.Sqrt(2.0 * math.Log(float64(nPlus1))))
 	}
 }
 
