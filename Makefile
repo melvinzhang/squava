@@ -7,7 +7,7 @@ FUZZ_ITERS=100000
 all: build
 
 build:
-	go build -o $(BINARY_NAME) .
+	go build -pgo default.prof -o $(BINARY_NAME) .
 
 test:
 	go test -v .
