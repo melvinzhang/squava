@@ -39,7 +39,7 @@ profile: build
 
 pprof:
 	go tool pprof -list RunSimulation cpu.prof
-	go tool pprof -list Select cpu.prof
+	go tool pprof -list selectBestEdge cpu.prof
 
 analyze:
 	python3 analyze_log.py logs/*
