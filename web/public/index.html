@@ -70,11 +70,42 @@
             }
         };
 
+        function getFatalBits(board) {
+            let fatal = 0n;
+            const players = [BigInt(board.p0), BigInt(board.p1), BigInt(board.p2)];
+            for (let p = 0; p < 3; p++) {
+                const isEliminated = !(board.activeMask & (1 << p));
+                const isWinner = (board.terminal && board.winnerID === p);
+                if (isEliminated || isWinner) {
+                    const b = players[p];
+                    const length = isWinner ? 4 : 3;
+                    for (let i = 0; i < 64; i++) {
+                        if (!(b & (1n << BigInt(i)))) continue;
+                        const r = Math.floor(i / 8), c = i % 8;
+                        const dirs = [[0, 1], [1, 0], [1, 1], [1, -1]];
+                        for (const [dr, dc] of dirs) {
+                            let count = 0, bits = 0n;
+                            for (let s = 0; s < length; s++) {
+                                const nr = r + dr * s, nc = c + dc * s;
+                                if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+                                    const nidx = nr * 8 + nc;
+                                    if (b & (1n << BigInt(nidx))) { count++; bits |= (1n << BigInt(nidx)); }
+                                }
+                            }
+                            if (count === length) fatal |= bits;
+                        }
+                    }
+                }
+            }
+            return fatal;
+        }
+
         function renderBoard(board) {
             boardDiv.innerHTML = '';
             const p0 = BigInt(board.p0);
             const p1 = BigInt(board.p1);
             const p2 = BigInt(board.p2);
+            const fatal = getFatalBits(board);
 
             for (let i = 0; i < 64; i++) {
                 const cell = document.createElement('div');
@@ -84,14 +115,19 @@
                 else if ((p1 & mask) !== 0n) cell.innerText = 'O';
                 else if ((p2 & mask) !== 0n) cell.innerText = 'Z';
                 
+                if ((fatal & mask) !== 0n) {
+                    cell.style.backgroundColor = '#f8d7da';
+                    cell.style.color = '#721c24';
+                }
+
                 cell.onclick = () => {
                     if (board.terminal || board.playerID !== humanPlayerID) return;
-                    const mask = 1n << BigInt(i);
-                    if (((BigInt(board.p0) | BigInt(board.p1) | BigInt(board.p2)) & mask) !== 0n) return;
+                    const m = 1n << BigInt(i);
+                    if (((BigInt(board.p0) | BigInt(board.p1) | BigInt(board.p2)) & m) !== 0n) return;
                     
                     // Check forced moves if any
                     const fMask = BigInt(board.forcedMoves || "0");
-                    if (fMask !== 0n && (fMask & mask) === 0n) {
+                    if (fMask !== 0n && (fMask & m) === 0n) {
                         return; // Not a valid forced move
                     }
 
