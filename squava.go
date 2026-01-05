@@ -377,21 +377,7 @@ func (gs *GameState) NextPlayer() int {
 }
 
 func (gs *GameState) IsTerminal() (int, bool) {
-	if gs.Terminal {
-		return gs.WinnerID, true
-	}
-	if gs.WinnerID != -1 {
-		return gs.WinnerID, true
-	}
-	activeCount := bits.OnesCount8(gs.ActiveMask)
-	if activeCount <= 1 {
-		winner := -1
-		if activeCount == 1 {
-			winner = bits.TrailingZeros8(gs.ActiveMask)
-		}
-		return winner, true
-	}
-	return -1, false
+	return gs.WinnerID, gs.Terminal
 }
 
 func (gs *GameState) ActiveIDs() []int {
@@ -471,18 +457,26 @@ func (gs *GameState) setWinner(winnerID int) {
 }
 
 func (gs *GameState) ApplyMove(move Move) {
-	idx := move.ToIndex()
+	gs.ApplyMoveIdx(move.ToIndex())
+}
+
+func (gs *GameState) ApplyMoveIdx(idx int) {
 	mask := Bitboard(1 << uint(idx))
 	pID := gs.PlayerID
 
+	// 1. Immediate win
 	if (gs.Wins[pID] & mask) != 0 {
 		gs.applyPiece(idx)
 		gs.setWinner(pID)
 		return
 	}
 
+	// 2. Normal move or elimination
 	isLoss := (gs.Loses[pID] & mask) != 0
 	gs.applyPiece(idx)
+
+	empty := ^gs.Board.Occupied
+	invMask := ^mask
 
 	if isLoss {
 		newMask := gs.ActiveMask & ^(1 << uint(pID))
@@ -492,26 +486,29 @@ func (gs *GameState) ApplyMove(move Move) {
 		} else {
 			gs.updateTurn(getNextPlayer(pID, newMask))
 		}
+		gs.Wins[pID] = 0
+		gs.Loses[pID] = 0
 	} else {
 		gs.updateTurn(gs.NextPlayer())
+		if empty == 0 {
+			gs.Terminal = true
+		} else {
+			gs.Wins[pID], gs.Loses[pID] = GetWinsAndLosses(gs.Board.P[pID], empty)
+		}
 	}
 
-	empty := ^gs.Board.Occupied
-	if empty == 0 && !gs.Terminal {
-		gs.Terminal = true
+	// Update other players' threats - unrolled loop
+	if pID != 0 {
+		gs.Wins[0] &= invMask
+		gs.Loses[0] &= invMask
 	}
-	for p := 0; p < 3; p++ {
-		if (gs.ActiveMask & (1 << uint(p))) != 0 {
-			if p == pID {
-				gs.Wins[p], gs.Loses[p] = GetWinsAndLosses(gs.Board.P[p], empty)
-			} else {
-				gs.Wins[p] &= empty
-				gs.Loses[p] &= empty
-			}
-		} else {
-			gs.Wins[p] = 0
-			gs.Loses[p] = 0
-		}
+	if pID != 1 {
+		gs.Wins[1] &= invMask
+		gs.Loses[1] &= invMask
+	}
+	if pID != 2 {
+		gs.Wins[2] &= invMask
+		gs.Loses[2] &= invMask
 	}
 }
 
@@ -700,7 +697,7 @@ func (m *MCTSPlayer) Select(root *MCGSNode, gs *GameState, path []PathStep) []Pa
 				return path
 			}
 			edge := &curr.Edges[bestIdx]
-			gs.ApplyMove(edge.Move)
+			gs.ApplyMoveIdx(edge.Move.ToIndex())
 			path = append(path, PathStep{Node: edge.Dest, EdgeIdx: bestIdx, PlayerID: gs.PlayerID})
 			curr = edge.Dest
 		}
@@ -889,7 +886,7 @@ func RunSimulation(gs *GameState) ([3]float32, int, Board) {
 			return ScoreDraw(gs.ActiveMask), steps, gs.Board
 		}
 
-		gs.ApplyMove(MoveFromIndex(idx))
+		gs.ApplyMoveIdx(idx)
 	}
 }
 
