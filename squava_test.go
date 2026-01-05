@@ -832,8 +832,8 @@ func TestMCGSNodeMethods(t *testing.T) {
 	if node.Edges[idx].N != 0 {
 		t.Errorf("Expected 0 visits, got %d", node.Edges[idx].N)
 	}
-	if node.Edges[idx].Q != child.Q[gs1.PlayerID] {
-		t.Errorf("Edge Q mismatch: expected %f, got %f", child.Q[gs1.PlayerID], node.Edges[idx].Q)
+	if node.EdgeQs[idx] != child.Q[gs1.PlayerID] {
+		t.Errorf("Edge Q mismatch: expected %f, got %f", child.Q[gs1.PlayerID], node.EdgeQs[idx])
 	}
 
 	// Test SyncEdge
@@ -842,8 +842,8 @@ func TestMCGSNodeMethods(t *testing.T) {
 	if node.Edges[idx].N != 1 {
 		t.Errorf("Expected 1 visit, got %d", node.Edges[idx].N)
 	}
-	if node.Edges[idx].Q != child.Q[gs1.PlayerID] {
-		t.Errorf("Edge Q mismatch after sync: expected %f, got %f", child.Q[gs1.PlayerID], node.Edges[idx].Q)
+	if node.EdgeQs[idx] != child.Q[gs1.PlayerID] {
+		t.Errorf("Edge Q mismatch after sync: expected %f, got %f", child.Q[gs1.PlayerID], node.EdgeQs[idx])
 	}
 
 	// Test UpdateStats
@@ -1072,4 +1072,72 @@ func BenchmarkMCTSBlankBoard10k(b *testing.B) {
 		b.StartTimer()
 		player.Search(gs)
 	}
+}
+
+func selectBestEdgeGoRef(qs []float32, us []float32, coeff float32) int {
+	if len(qs) == 0 {
+		return -1
+	}
+	bestIdx := 0
+	bestScore := qs[0] + coeff*us[0]
+	for i := 1; i < len(qs); i++ {
+		score := qs[i] + coeff*us[i]
+		if score > bestScore {
+			bestScore = score
+			bestIdx = i
+		}
+	}
+	return bestIdx
+}
+
+func FuzzSelectBestEdge(f *testing.F) {
+	f.Add([]byte{0, 0, 0, 0}, []byte{0, 0, 0, 0}, float32(1.0))
+	f.Fuzz(func(t *testing.T, qBytes []byte, uBytes []byte, coeff float32) {
+		n := len(qBytes) / 4
+		if len(uBytes)/4 < n {
+			n = len(uBytes) / 4
+		}
+		if n == 0 {
+			return
+		}
+		qs := make([]float32, n)
+		us := make([]float32, n)
+		for i := 0; i < n; i++ {
+			qs[i] = math.Float32frombits(uint32(qBytes[i*4]) | uint32(qBytes[i*4+1])<<8 | uint32(qBytes[i*4+2])<<16 | uint32(qBytes[i*4+3])<<24)
+			us[i] = math.Float32frombits(uint32(uBytes[i*4]) | uint32(uBytes[i*4+1])<<8 | uint32(uBytes[i*4+2])<<16 | uint32(uBytes[i*4+3])<<24)
+			if math.IsNaN(float64(qs[i])) {
+				qs[i] = 0
+			}
+			if math.IsNaN(float64(us[i])) {
+				us[i] = 0
+			}
+		}
+		if math.IsNaN(float64(coeff)) {
+			coeff = 1.0
+		}
+
+		got := selectBestEdgeAVX2(qs, us, coeff)
+		if got == -1 {
+			return
+		}
+		want := selectBestEdgeGoRef(qs, us, coeff)
+		if got != want {
+			scoreGot := qs[got] + coeff*us[got]
+			scoreWant := qs[want] + coeff*us[want]
+			if math.Abs(float64(scoreGot-scoreWant)) > 1e-6 {
+				t.Errorf("AVX index %d (score %f) != Go index %d (score %f)", got, scoreGot, want, scoreWant)
+			}
+		}
+	})
+}
+
+func FuzzGetWinsAndLosses(f *testing.F) {
+	f.Add(uint64(0), uint64(0))
+	f.Fuzz(func(t *testing.T, board uint64, empty uint64) {
+		wAVX, lAVX := getWinsAndLossesAVX2(board, empty)
+		wGo, lGo := getWinsAndLossesGo(board, empty)
+		if wAVX != wGo || lAVX != lGo {
+			t.Errorf("AVX(w:%x, l:%x) != Go(w:%x, l:%x)", wAVX, lAVX, wGo, lGo)
+		}
+	})
 }

@@ -140,3 +140,99 @@ TEXT ·pdep(SB), $0-24
     PDEPQ CX, AX, AX
     MOVQ AX, ret+16(FP)
     RET
+
+DATA ·asmIndices+0(SB)/4, $0
+DATA ·asmIndices+4(SB)/4, $1
+DATA ·asmIndices+8(SB)/4, $2
+DATA ·asmIndices+12(SB)/4, $3
+DATA ·asmIndices+16(SB)/4, $4
+DATA ·asmIndices+20(SB)/4, $5
+DATA ·asmIndices+24(SB)/4, $6
+DATA ·asmIndices+28(SB)/4, $7
+GLOBL ·asmIndices(SB), RODATA, $32
+
+DATA ·asmNegInf(SB)/4, $0xff800000
+GLOBL ·asmNegInf(SB), RODATA, $4
+
+// func selectBestEdgeAVX2(qs []float32, us []float32, coeff float32) int
+TEXT ·selectBestEdgeAVX2(SB), NOSPLIT, $0-64
+    MOVQ qs_base+0(FP), SI
+    MOVQ qs_len+8(FP), CX      // CX = length
+    MOVQ us_base+24(FP), DI
+    VMOVSS coeff+48(FP), X0
+    VBROADCASTSS X0, Y0       // Y0 = [coeff...]
+
+    VMOVDQU ·asmIndices(SB), Y3   // Y3 = current indices [0..7]
+    VMOVSS ·asmNegInf(SB), X1
+    VBROADCASTSS X1, Y1       // Y1 = best scores (-inf)
+    VPXOR Y2, Y2, Y2          // Y2 = best indices (0)
+
+    MOVQ $8, AX
+    VMOVQ AX, X4
+    VPBROADCASTD X4, Y4       // Y4 = [8...]
+
+    MOVQ $0, DX               // loop counter
+loop:
+    MOVQ CX, BX
+    SUBQ DX, BX
+    CMPQ BX, $8
+    JL reduce
+
+    VMOVUPS (SI)(DX*4), Y5    // load 8 Qs
+    VMOVUPS (DI)(DX*4), Y6    // load 8 Us
+    
+    VFMADD213PS Y5, Y0, Y6    // Y6 = Y0*Y6 + Y5 = coeff*U + Q
+    
+    VCMPPS $14, Y1, Y6, Y8    // Y8 = Y6 > Y1
+    
+    VBLENDVPS Y8, Y6, Y1, Y1  // update best scores
+    VBLENDVPS Y8, Y3, Y2, Y2  // update best indices
+    
+    VPADDD Y4, Y3, Y3         // current indices += 8
+    ADDQ $8, DX
+    JMP loop
+
+reduce:
+    // Reduce Y1 (scores) and Y2 (indices) to scalar X1/X2 lane 0
+    VEXTRACTI128 $1, Y1, X5
+    VEXTRACTI128 $1, Y2, X6
+    VCMPPS $14, X1, X5, X8
+    VBLENDVPS X8, X5, X1, X1
+    VBLENDVPS X8, X6, X2, X2
+
+    VPSHUFD $0x4E, X1, X5
+    VPSHUFD $0x4E, X2, X6
+    VCMPPS $14, X1, X5, X8
+    VBLENDVPS X8, X5, X1, X1
+    VBLENDVPS X8, X6, X2, X2
+
+    VPSHUFD $0xB1, X1, X5
+    VPSHUFD $0xB1, X2, X6
+    VCMPPS $14, X1, X5, X8
+    VBLENDVPS X8, X5, X1, X1
+    VBLENDVPS X8, X6, X2, X2
+
+    VMOVD X2, R9              // R9 = current best index
+
+remainder:
+    CMPQ DX, CX
+    JGE done_final
+    
+    VMOVSS (SI)(DX*4), X5     // Q
+    VMOVSS (DI)(DX*4), X6     // U
+    VMULSS X0, X6, X6         // coeff * U
+    VADDSS X5, X6, X6         // Q + coeff*U
+    
+    VCOMISS X1, X6            // compare current score (X6) with best (X1)
+    JBE next_rem
+    VMOVUPS X6, X1
+    MOVQ DX, R9               // update best index
+next_rem:
+    ADDQ $1, DX
+    JMP remainder
+
+done_final:
+    MOVQ R9, AX
+    MOVQ AX, ret+56(FP)
+    VZEROUPPER
+    RET

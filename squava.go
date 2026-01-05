@@ -609,7 +609,7 @@ func (m *MCTSPlayer) PrintStats(myID int, totalSteps, rollouts int, elapsed time
 		edge := &root.Edges[i]
 		mv := edge.Move
 		visits := int(edge.N)
-		q := edge.Q
+		q := root.EdgeQs[i]
 		stats = append(stats, MoveStat{mv, visits, q})
 		if visits > bestVisits {
 			bestVisits = visits
@@ -732,14 +732,14 @@ type MCGSEdge struct {
 	Move Move
 	Dest *MCGSNode
 	N    int32
-	Q    float32
-	U    float32
 }
 
 type MCGSNode struct {
 	N            int
 	Q            [3]float32
 	Edges        []MCGSEdge
+	EdgeQs       []float32
+	EdgeUs       []float32
 	untriedMoves Bitboard
 	UCB1Coeff    float32
 }
@@ -749,9 +749,10 @@ func (n *MCGSNode) AddEdge(move Move, dest *MCGSNode, playerID int) int {
 	n.Edges = append(n.Edges, MCGSEdge{
 		Move: move,
 		Dest: dest,
-		Q:    dest.Q[playerID],
-		U:    invSqrtTable[1],
+		N:    0,
 	})
+	n.EdgeQs = append(n.EdgeQs, dest.Q[playerID])
+	n.EdgeUs = append(n.EdgeUs, invSqrtTable[1])
 	return idx
 }
 
@@ -760,13 +761,16 @@ func (n *MCGSNode) selectBestEdge() int {
 		return -1
 	}
 
+	if len(n.Edges) >= 8 {
+		return selectBestEdgeAVX2(n.EdgeQs, n.EdgeUs, n.UCB1Coeff)
+	}
+
 	bestIdx := -1
 	bestScore := float32(negInf)
 	coeff := n.UCB1Coeff
 
 	for i := range n.Edges {
-		edge := &n.Edges[i]
-		score := edge.Q + coeff*edge.U
+		score := n.EdgeQs[i] + coeff*n.EdgeUs[i]
 		if score > bestScore {
 			bestScore = score
 			bestIdx = i
@@ -794,12 +798,12 @@ func (n *MCGSNode) UpdateStats(result [3]float32) {
 func (n *MCGSNode) SyncEdge(idx int, child *MCGSNode, playerID int) {
 	edge := &n.Edges[idx]
 	edge.N++
-	edge.Q = child.Q[playerID]
+	n.EdgeQs[idx] = child.Q[playerID]
 	vPlus1 := int(edge.N) + 1
 	if vPlus1 < len(invSqrtTable) {
-		edge.U = invSqrtTable[vPlus1]
+		n.EdgeUs[idx] = invSqrtTable[vPlus1]
 	} else {
-		edge.U = float32(1.0 / math.Sqrt(float64(vPlus1)))
+		n.EdgeUs[idx] = float32(1.0 / math.Sqrt(float64(vPlus1)))
 	}
 }
 
