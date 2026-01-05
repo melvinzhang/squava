@@ -28,7 +28,7 @@ test:
 fuzz:
 	@for f in $$(go test -list Fuzz . | grep ^Fuzz); do \
 		echo "Running $$f..."; \
-		go test -v -fuzz=$$f -fuzztime=1s . || exit 1; \
+		go test -v -fuzz=$$f -fuzztime=5s . || exit 1; \
 	done
 
 repro_game_%.log: build
