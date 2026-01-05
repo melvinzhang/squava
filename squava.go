@@ -545,7 +545,6 @@ func (tt TranspositionTable) Clear() {
 type MCTSPlayer struct {
 	info       PlayerInfo
 	iterations int
-	path       []PathStep
 	root       *MCGSNode
 	Verbose    bool
 }
@@ -554,7 +553,6 @@ func NewMCTSPlayer(name, symbol string, id int, iterations int) *MCTSPlayer {
 	return &MCTSPlayer{
 		info:       PlayerInfo{name: name, symbol: symbol, id: id},
 		iterations: iterations,
-		path:       make([]PathStep, 0, 64),
 	}
 }
 func (m *MCTSPlayer) Name() string   { return m.info.name }
@@ -571,9 +569,11 @@ func (m *MCTSPlayer) Search(gs GameState) (int, int) {
 
 	initialN := root.N
 	totalSteps := 0
+	path := make([]PathStep, 0, 64)
 	for root.N < m.iterations {
 		tmpGS := gs
-		path := m.Select(root, &tmpGS)
+		path = path[:0]
+		path = m.Select(root, &tmpGS, path)
 
 		var result [3]float32
 		winnerID, terminal := tmpGS.IsTerminal()
@@ -680,9 +680,8 @@ type PathStep struct {
 
 var negInf = math.Inf(-1)
 
-func (m *MCTSPlayer) Select(root *MCGSNode, gs *GameState) []PathStep {
-	m.path = m.path[:0]
-	m.path = append(m.path, PathStep{Node: root, EdgeIdx: -1, PlayerID: gs.PlayerID})
+func (m *MCTSPlayer) Select(root *MCGSNode, gs *GameState, path []PathStep) []PathStep {
+	path = append(path, PathStep{Node: root, EdgeIdx: -1, PlayerID: gs.PlayerID})
 
 	curr := root
 	for {
@@ -693,9 +692,9 @@ func (m *MCTSPlayer) Select(root *MCGSNode, gs *GameState) []PathStep {
 		if move, ok := curr.PopUntriedMove(); ok {
 			parentPlayerID := gs.PlayerID
 			child, isNew, edgeIdx := m.expand(curr, gs, move, parentPlayerID)
-			m.path = append(m.path, PathStep{Node: child, EdgeIdx: edgeIdx, PlayerID: gs.PlayerID})
+			path = append(path, PathStep{Node: child, EdgeIdx: edgeIdx, PlayerID: gs.PlayerID})
 			if isNew {
-				return m.path
+				return path
 			}
 			curr = child
 			continue
@@ -709,10 +708,10 @@ func (m *MCTSPlayer) Select(root *MCGSNode, gs *GameState) []PathStep {
 
 		edge := &curr.Edges[bestIdx]
 		gs.ApplyMove(edge.Move)
-		m.path = append(m.path, PathStep{Node: edge.Dest, EdgeIdx: bestIdx, PlayerID: gs.PlayerID})
+		path = append(path, PathStep{Node: edge.Dest, EdgeIdx: bestIdx, PlayerID: gs.PlayerID})
 		curr = edge.Dest
 	}
-	return m.path
+	return path
 }
 
 func (m *MCTSPlayer) expand(curr *MCGSNode, gs *GameState, move Move, playerID int) (*MCGSNode, bool, int) {
