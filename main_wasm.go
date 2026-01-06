@@ -112,6 +112,23 @@ func getBoard(this js.Value, args []js.Value) any {
 	}
 	forced := GetForcedMoves(currentGS.Board, activeIDs, turnIdx)
 
+	winnerID, terminal := currentGS.IsTerminal()
+
+	var winningBits, losingBits Bitboard
+	for p := 0; p < 3; p++ {
+		isEliminated := (currentGS.ActiveMask & (1 << uint(p))) == 0
+		isWinner := terminal && winnerID == p
+		if isEliminated || isWinner {
+			w, l := GetWinsAndLosses(currentGS.Board.P[p], currentGS.Board.P[p])
+			if isWinner {
+				winningBits |= w
+			}
+			if isEliminated {
+				losingBits |= l
+			}
+		}
+	}
+
 	res := js.Global().Get("Object").New()
 	res.Set("p0", p0)
 	res.Set("p1", p1)
@@ -119,7 +136,8 @@ func getBoard(this js.Value, args []js.Value) any {
 	res.Set("playerID", currentGS.PlayerID)
 	res.Set("activeMask", int(currentGS.ActiveMask))
 	res.Set("forcedMoves", strconv.FormatUint(uint64(forced), 10))
-	winnerID, terminal := currentGS.IsTerminal()
+	res.Set("winningBits", strconv.FormatUint(uint64(winningBits), 10))
+	res.Set("losingBits", strconv.FormatUint(uint64(losingBits), 10))
 	res.Set("winnerID", winnerID)
 	res.Set("terminal", terminal)
 
