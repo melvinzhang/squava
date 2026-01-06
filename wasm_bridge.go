@@ -20,6 +20,9 @@ func newGame(this js.Value, args []js.Value) any {
 		}
 		xorState = s
 	}
+	// Clear the transposition table to ensure a fresh MCTS search
+	tt.Clear()
+
 	board := Board{}
 	activeMask := uint8(0x07) // All 3 players active
 	currentGS = NewGameState(board, 0, activeMask)
