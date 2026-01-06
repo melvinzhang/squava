@@ -22,7 +22,7 @@ zip: wasm
 
 serve: wasm
 	@echo "Serving at http://localhost:8080"
-	python3 -m http.server 8080 --directory web/public
+	python3 server.py
 
 test:
 	$(GO) test -v .
