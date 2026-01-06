@@ -3,8 +3,8 @@
 package main
 
 import (
-	"fmt"
 	"math/bits"
+	"strconv"
 	"syscall/js"
 )
 
@@ -13,8 +13,7 @@ var currentGS GameState
 func newGame(this js.Value, args []js.Value) any {
 	if len(args) > 0 {
 		seedStr := args[0].String()
-		var s uint64
-		fmt.Sscanf(seedStr, "%d", &s)
+		s, _ := strconv.ParseUint(seedStr, 10, 64)
 		if s == 0 {
 			s = 1
 		}
@@ -26,7 +25,7 @@ func newGame(this js.Value, args []js.Value) any {
 	board := Board{}
 	activeMask := uint8(0x07) // All 3 players active
 	currentGS = NewGameState(board, 0, activeMask)
-	return js.ValueOf(fmt.Sprintf("%d", currentGS.Hash))
+	return js.ValueOf(strconv.FormatUint(currentGS.Hash, 10))
 }
 
 func applyMove(this js.Value, args []js.Value) any {
@@ -55,7 +54,7 @@ func applyMove(this js.Value, args []js.Value) any {
 
 	move := MoveFromIndex(idx)
 	currentGS.ApplyMove(move)
-	return js.ValueOf(fmt.Sprintf("%d", currentGS.Hash))
+	return js.ValueOf(strconv.FormatUint(currentGS.Hash, 10))
 }
 
 func getForcedMoves(this js.Value, args []js.Value) any {
@@ -68,7 +67,7 @@ func getForcedMoves(this js.Value, args []js.Value) any {
 		}
 	}
 	forced := GetForcedMoves(currentGS.Board, activeIDs, turnIdx)
-	return js.ValueOf(fmt.Sprintf("%d", forced))
+	return js.ValueOf(strconv.FormatUint(uint64(forced), 10))
 }
 
 func getBestMove(this js.Value, args []js.Value) any {
@@ -99,9 +98,9 @@ func getBestMove(this js.Value, args []js.Value) any {
 }
 
 func getBoard(this js.Value, args []js.Value) any {
-	p0 := fmt.Sprintf("%d", currentGS.Board.P[0])
-	p1 := fmt.Sprintf("%d", currentGS.Board.P[1])
-	p2 := fmt.Sprintf("%d", currentGS.Board.P[2])
+	p0 := strconv.FormatUint(uint64(currentGS.Board.P[0]), 10)
+	p1 := strconv.FormatUint(uint64(currentGS.Board.P[1]), 10)
+	p2 := strconv.FormatUint(uint64(currentGS.Board.P[2]), 10)
 
 	activeIDs := currentGS.ActiveIDs()
 	var turnIdx int
@@ -119,7 +118,7 @@ func getBoard(this js.Value, args []js.Value) any {
 	res.Set("p2", p2)
 	res.Set("playerID", currentGS.PlayerID)
 	res.Set("activeMask", int(currentGS.ActiveMask))
-	res.Set("forcedMoves", fmt.Sprintf("%d", forced))
+	res.Set("forcedMoves", strconv.FormatUint(uint64(forced), 10))
 	winnerID, terminal := currentGS.IsTerminal()
 	res.Set("winnerID", winnerID)
 	res.Set("terminal", terminal)
@@ -130,7 +129,7 @@ func getBoard(this js.Value, args []js.Value) any {
 
 func main() {
 	c := make(chan struct{}, 0)
-	fmt.Println("Squava Engine Initialized")
+	println("Squava Engine Initialized")
 	js.Global().Set("squavaNewGame", js.FuncOf(newGame))
 	js.Global().Set("squavaApplyMove", js.FuncOf(applyMove))
 	js.Global().Set("squavaGetBestMove", js.FuncOf(getBestMove))
