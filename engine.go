@@ -440,30 +440,25 @@ func (gs *GameState) ApplyMoveIdx(idx int) {
 	}
 }
 
-type TTEntry struct {
-	hash uint64
-	node *MCGSNode
-}
-
-type TranspositionTable []TTEntry
+type TranspositionTable []*MCGSNode
 
 func (tt TranspositionTable) Lookup(gs *GameState) *MCGSNode {
 	idx := gs.Hash & TTMask
-	entry := tt[idx]
-	if entry.hash == gs.Hash && entry.node != nil {
-		return entry.node
+	node := tt[idx]
+	if node != nil && node.Hash == gs.Hash {
+		return node
 	}
 	return nil
 }
 
 func (tt TranspositionTable) Store(hash uint64, node *MCGSNode) {
 	idx := hash & TTMask
-	tt[idx] = TTEntry{hash: hash, node: node}
+	tt[idx] = node
 }
 
 func (tt TranspositionTable) Clear() {
 	for i := range tt {
-		tt[i] = TTEntry{}
+		tt[i] = nil
 	}
 }
 
@@ -615,6 +610,7 @@ type MCGSEdge struct {
 const InlineEdgeCap = 4
 
 type MCGSNode struct {
+	Hash         uint64
 	N            int
 	Q            [3]float32
 	Edges        []MCGSEdge
@@ -707,6 +703,7 @@ func NewMCGSNode(gs GameState) *MCGSNode {
 		untried = gs.GetBestMoves()
 	}
 	n := &MCGSNode{
+		Hash:         gs.Hash,
 		untriedMoves: untried,
 	}
 	n.Edges = n.edgesBuf[:0]
