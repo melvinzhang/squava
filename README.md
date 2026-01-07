@@ -106,20 +106,20 @@ To analyze the performance of the engine, use the built-in profiling rules:
 
 ## Performance Benchmarks
 
-Based on an analysis of 426 games (1,000,000 iterations per turn):
+Based on an analysis of 800 games (1,000,000 iterations per turn):
 
 ### Win Statistics
-- **Player 1 (X):** 10.1% wins
-- **Player 2 (O):** 28.4% wins
-- **Player 3 (Z):** 40.6% wins
-- **Draw:** 20.9%
+- **Player 1 (X):** 12.6% wins
+- **Player 2 (O):** 22.6% wins
+- **Player 3 (Z):** 46.2% wins
+- **Draw:** 18.5%
 
 ### Game Dynamics
-- **Average Game Length:** 55.4 moves
-- **Primary Win Methods:** Last Standing (75.1%), Draw (20.9%), 4-in-a-row (4.0%)
-- **Eliminations:** Player 1 shows a higher elimination rate (P1: 321, P2: 231, P3: 179), likely due to the disadvantage of moving first in this 3-player configuration.
+- **Average Game Length:** 56.4 moves
+- **Primary Win Methods:** Last Standing (76.2%), Draw (18.5%), 4-in-a-row (5.2%)
+- **Eliminations:** Player 1 remains the most frequently eliminated (P1: 599, P2: 482, P3: 315), as the first player faces the toughest tactical position in this 3-player configuration.
 
 ### AI Behavior
-- **Average Confidence:** AI players' estimated winrates (P1: 25.6%, P2: 39.9%, P3: 39.6%) align closely with actual win outcomes.
-- **Blunder Detection:** The engine detects significant winrate shifts (blunders > 51%), typically occurring during complex mid-game transitions where forced blocks and multiple threats overlap.
+- **Average Confidence:** AI players' estimated winrates (P1: 25.8%, P2: 38.1%, P3: 41.6%) reflect the inherent positional advantages/disadvantages.
+- **Blunder Detection:** The engine continues to identify significant winrate shifts (blunders > 51%), which are most common during the dense mid-to-late game where a single piece can create multiple 3-in-a-row threats.
 
