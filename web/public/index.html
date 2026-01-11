@@ -70,6 +70,7 @@
         const playerSelect = document.getElementById('playerSelect');
 
         let humanPlayerID = 2; // Default to P3
+        let aiStartTime = 0;
 
         worker.onmessage = (e) => {
             const { type, payload } = e.data;
@@ -83,12 +84,16 @@
                 if (!payload.board.terminal && payload.board.playerID !== humanPlayerID) {
                     const aiPlayer = payload.board.playerID + 1;
                     status.innerText = 'Player ' + aiPlayer + ' (AI) is thinking...';
-                    setTimeout(() => {
-                        worker.postMessage({ type: 'GET_AI_MOVE', payload: { iterations: 100000 } });
-                    }, 600);
+                    aiStartTime = Date.now();
+                    worker.postMessage({ type: 'GET_AI_MOVE', payload: { iterations: 100000 } });
                 }
             } else if (type === 'AI_MOVE_RESULT') {
-                worker.postMessage({ type: 'APPLY_MOVE', payload: { idx: payload.move } });
+                const elapsed = Date.now() - aiStartTime;
+                const minDelay = 500;
+                const delay = Math.max(0, minDelay - elapsed);
+                setTimeout(() => {
+                    worker.postMessage({ type: 'APPLY_MOVE', payload: { idx: payload.move } });
+                }, delay);
             }
         };
 
